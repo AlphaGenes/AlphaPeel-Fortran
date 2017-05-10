@@ -37,7 +37,7 @@ module AlphaMLPModule
 
     interface runAlphaMLP
 
-        ! module procedure runAlphaMLPAlphaImpute
+        module procedure runAlphaMLPAlphaImpute
         module procedure runAlphaMLPIndependently
     end interface runAlphaMLP
     contains 

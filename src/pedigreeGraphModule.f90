@@ -5,6 +5,21 @@ use PedigreeModule
     implicit none
 
 contains
+
+
+!---------------------------------------------------------------------------
+! DESCRIPTION:
+!> @brief      Calculates the distance between two individuals in the pedigree.
+!
+!> @details   This function calculates the distance between two individuals in the pedigree. 
+!Distance is based on the minimal path length between two individuals (assuming that you can only reverse direction once). 
+!Individuals who are not connected via a more recent ancestor have a distance of -1
+!
+!> @author    David Wilson, david.wilson@roslin.ed.ac.uk
+!
+!> @date       
+!---------------------------------------------------------------------------
+
 subroutine calculateCommonAndDistance(commonAnDistance, ped)
 
     integer, dimension(:,:), allocatable, intent(out) :: commonAnDistance
