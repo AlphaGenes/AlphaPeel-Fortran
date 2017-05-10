@@ -41,6 +41,8 @@ module globalGP
         integer, dimension(:), allocatable :: array
     end type arrayContainer
 
+    type(arrayContainer), dimension(:), allocatable :: familiesInGeneration 
+
     type peelingEstimates
         real(kind=real64), dimension(:,:,:), allocatable :: posteriorAll, sirePosteriorMateAll, damePosteriorMateAll
 

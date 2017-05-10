@@ -36,7 +36,6 @@ module AlphaMLPModule
     use AlphaMLPInputModule
 
     interface runAlphaMLP
-
         module procedure runAlphaMLPAlphaImpute
         module procedure runAlphaMLPIndependently
     end interface runAlphaMLP
@@ -65,15 +64,10 @@ module AlphaMLPModule
         type(PedigreeHolder) :: ped
         real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
         real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
-        real(kind=real64) :: mafOut !< tmp value for maf
-        integer(kind=1), dimension(:), allocatable :: tmpGenotypes
         type(AlphaMLPInput) :: inputParams
         integer :: nHaplotypes
 
         type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
-
-
-        integer :: iter
 
         pedigree = ped
         nHaplotypes = 4
@@ -158,13 +152,33 @@ module AlphaMLPModule
         enddo
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         print *, "run AlphaMLP"
-
+        call setupGenerations()
         call runMultiLocusAlphaMLP(currentPeelingEstimates, 1)
 
         deallocate(currentPeelingEstimates)
     end subroutine runAlphaMLPIndependently
 
     ! Two subroutines below for running the HMM.
+
+
+    subroutine setupGenerations() 
+        use globalGP, only: nMatingPairs, familiesInGeneration, offspringList
+        use graphModule, only : selectIndexesBasedOnMask
+        integer, dimension(nMatingPairs) :: familyGeneration
+        integer nGenerations, i
+
+        do i = 1, nMatingPairs
+            familyGeneration(i) = offspringList(i)%first%item%generation
+        enddo 
+
+        nGenerations = maxval(familyGeneration)
+        allocate(familiesInGeneration(nGenerations))
+        do i = 1, nGenerations
+            familiesInGeneration(i)%array = selectIndexesBasedOnMask(familyGeneration == i)
+            print *, i, familiesInGeneration(i)%array
+        enddo
+
+    end subroutine
 
     subroutine setupHMM()
         use Global
@@ -528,7 +542,6 @@ module AlphaMLPModule
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            print *, "initialized", i, "out of",  nSnps
             call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs)
         enddo
 
@@ -724,10 +737,12 @@ module AlphaMLPModule
                 endif
             enddo
         endif
-
+        
+        !!$omp parallel do
         do i= 1, nMatingPairs           
             call peelDown(markerEstimates, i)
         enddo
+        !!$omp end parallel do
 
         do i=nMatingPairs, 1, -1               
             call updateSegregation(markerEstimates, i)
@@ -874,17 +889,21 @@ module AlphaMLPModule
     
         pjoint = 0
         call additiveOuterProduct(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
+        
         nChildren = offspringList(fam)%length
         allocate(offspring(nChildren))
         allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
         offspring = offspringList(fam)%convertToArrayIDs()
         
-        !MP        
+        ! !$omp parallel do &
         do j=1, nChildren
             child = offspring(j)
             temp => markerEstimates%currentSegregationTensors(:,:,:,child)
             childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child) + posterior(:, child), temp)
+            childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
         enddo
+        ! !omp end parallel do
 
         pjoint = pjoint + sum(childEstimate, dim=3)
         !MP
@@ -926,7 +945,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
         integer :: father, mate, nChildren, child
         real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
-        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint, tmp
         real(kind=real64), dimension(nHaplotypes) :: tempEstimate
         real(kind=real64), dimension(:,:,:), pointer, contiguous :: childTrace
         integer, dimension(:), allocatable :: offspring
@@ -954,7 +973,11 @@ module AlphaMLPModule
             !May be able to pre-multiply this stuff together.
             child = offspring(j)
             childTrace => buildTraceTensor(markerEstimates%currentSegregationEstimate(:,child)*markerEstimates%pointSegregation(:,child))
-            pjoint = pjoint + childTraceMultiply(penetrance(:, child)+posterior(:, child), childTrace)
+            tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), childTrace)
+            tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
+        
+            pjoint = pjoint + tmp
+           
             deallocate(childTrace)
         enddo
 
@@ -1003,6 +1026,8 @@ module AlphaMLPModule
         pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
         pjoint = 0
         call additiveOuterProduct(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
+
         
         nChildren = offspringList(fam)%length
 
@@ -1015,14 +1040,16 @@ module AlphaMLPModule
             child = offspring(j)
             temp => markerEstimates%currentSegregationTensors(:,:,:,child)
             childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), temp)
+            childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
             pjoint = pjoint + childEstimate(:,:,j)
         enddo
         !MP
         do j=1, nChildren
             child = offspring(j)
             if(.not. isPhasedChild(child)) then
-            ! newPointEstimate(:,child) = reduceSegregationTensor(anterior(:,child)+posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
-            newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
+                ! newPointEstimate(:,child) = reduceSegregationTensor(anterior(:,child)+posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
+                newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
+                newPointEstimate(:,child) = reduceSegregationTensorMKL(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
             endif
         enddo
         deallocate(offspring, childEstimate)
@@ -1043,7 +1070,7 @@ module AlphaMLPModule
     !> @param[out] 
     !---------------------------------------------------------------------------
 
-    function reduceSegregationTensor(childGenotypes, parentJointGenotypes) result(collapsedEstimate)
+    function reduceSegregationTensorMKL(childGenotypes, parentJointGenotypes) result(collapsedEstimate)
         use globalGP, only: nHaplotypes, segregationTensorParentsFirst
         implicit none
         real(kind=real64), dimension(nHaplotypes), intent(in) :: childGenotypes
@@ -1064,51 +1091,68 @@ module AlphaMLPModule
         !Sort this out.
         reducedSegParentFirst(1:nHaplotypes**2, 1:nHaplotypes*4) => segregationTensorParentsFirst
         expJointReduced(1:nHaplotypes**2) => expJoint
-        call gemv(reducedSegParentFirst, expJointReduced, reducedSegTensor, trans='T') !(h**2 x 4h) * (h**2) => 4h
+        call gemv(reducedSegParentFirst, expJointReduced, reducedSegTensor, trans='T') !(h**2 x 4h)T * (h**2) => 4h
         !then reduce again
         reorderedReduced(1:nHaplotypes, 1:4) => reducedSegTensor
-        call gemv(reorderedReduced, expChildGenotypes, collapsedEstimate, trans='T') !(h x 4) * (h) => 4
+        call gemv(reorderedReduced, expChildGenotypes, collapsedEstimate, trans='T') !(h x 4)T * (h) => 4
         
         collapsedEstimate = collapsedEstimate/sum(collapsedEstimate)
 
         deallocate(expJoint, reducedSegTensor)
-        !for each seg option pp, pm, mp, mm
-        ! do seg=1, 4
-        !     !Do for each child allele, aa, aA, Aa, AA
-        !     do allele = 1, 4
-        !         collapsedEstimate(seg) = collapsedEstimate(seg) + sum(segregationTensor(allele, :, :, seg)*expJoint) * expChildGenotypes(allele)
-        !     enddo
-        ! enddo
+      
+    end function
+
+    function reduceSegregationTensor(childGenotypes, parentJointGenotypes) result(collapsedEstimate)
+        use globalGP, only: nHaplotypes
+        implicit none
+        real(kind=real64), dimension(nHaplotypes), intent(in) :: childGenotypes
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes), intent(in) :: parentJointGenotypes
+
+        real(kind=real64), dimension(:,:), allocatable :: expJoint
+        real(kind=real64), dimension(nHaplotypes) :: collapsedEstimate
+        
+        real(kind=real64), dimension(nHaplotypes) :: expChildGenotypes
+        integer :: seg, allele
+
+        ! for each seg option pp, pm, mp, mm
+        expChildGenotypes = exp(childGenotypes-maxval(childGenotypes))
+        expJoint = exp(parentJointGenotypes-maxval(parentJointGenotypes))
+        do seg=1, 4
+            !Do for each child allele, aa, aA, Aa, AA
+            do allele = 1, 4
+                collapsedEstimate(seg) = collapsedEstimate(seg) + sum(segregationTensor(allele, :, :, seg)*expJoint) * expChildGenotypes(allele)
+            enddo
+        enddo
 
     end function
 
-    ! function childTraceMultiply(vect, traceTensorExp) result(collapsedEstimate)
-    !     use globalGP, only: nHaplotypes
-    !     implicit none
-    !     real(kind=real64), dimension(nHaplotypes), intent(in) :: vect
-    !     real(kind=real64), dimension(nHaplotypes) :: vectExp
-    !     real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: collapsedEstimate
-    !     real(kind=real64), dimension(nHaplotypes, nHaplotypes, nHaplotypes), intent(in) :: traceTensorExp
-    !     integer :: i, j
-    !     real(kind=real64)  :: max
+    function childTraceMultiply(vect, traceTensorExp) result(collapsedEstimate)
+        use globalGP, only: nHaplotypes
+        implicit none
+        real(kind=real64), dimension(nHaplotypes), intent(in) :: vect
+        real(kind=real64), dimension(nHaplotypes) :: vectExp
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: collapsedEstimate
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes, nHaplotypes), intent(in) :: traceTensorExp
+        integer :: i, j
+        real(kind=real64)  :: max
         
-    !     max = maxval(vect)
-    !     vectExp = vect - max
-    !     vectExp = exp(vectExp)
+        max = maxval(vect)
+        vectExp = vect - max
+        vectExp = exp(vectExp)
 
-    !     !we need to rebuild the trace tensor
-    !     ! traceTensorExp = buildTraceTensor(childSegregation)
-    !     do i=1,nHaplotypes
-    !         ! print *, i
-    !        do j = 1, nHaplotypes
-    !             ! print *, i, " ", j
-    !             collapsedEstimate(i, j) = log(sum(vectExp * traceTensorExp(:, i, j))) + max
-    !        enddo
-    !     enddo
+        !we need to rebuild the trace tensor
+        ! traceTensorExp = buildTraceTensor(childSegregation)
+        do i=1,nHaplotypes
+            ! print *, i
+           do j = 1, nHaplotypes
+                ! print *, i, " ", j
+                collapsedEstimate(i, j) = log(sum(vectExp * traceTensorExp(:, i, j))) + max
+           enddo
+        enddo
         
-    ! end function
+    end function
 
-    function childTraceMultiply(vect, traceTensorLocal) result(collapsedEstimate)
+    function childTraceMultiplyMKL(vect, traceTensorLocal) result(collapsedEstimate)
         use globalGP, only: nHaplotypes
         implicit none
         real(kind=real64), dimension(nHaplotypes), intent(in) :: vect
@@ -1486,7 +1530,15 @@ module AlphaMLPModule
         do i = 1, nHaplotypes
             pjoint(:,i) = pfather(i) + pmate
         enddo
+    end subroutine
 
+    subroutine additiveOuterProductSpread(pfather, pmate, pjoint)
+        use globalGP, only: nHaplotypes
+        implicit none
+        REAL(kind=real64), dimension(nHaplotypes), intent(in) :: pfather, pmate
+        REAL(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
+
+        pjoint = spread(pfather, 1, nHaplotypes) + spread(pmate, 2, nHaplotypes)
     end subroutine
 
     function logAdd1t0(mat) result(out)
