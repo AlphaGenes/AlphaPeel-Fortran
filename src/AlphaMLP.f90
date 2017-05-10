@@ -162,10 +162,10 @@ module AlphaMLPModule
 
 
     subroutine setupGenerations() 
-        use globalGP, only: nMatingPairs, familiesInGeneration, offspringList
+        use globalGP, only: nMatingPairs, familiesInGeneration, offspringList, nGenerations
         use graphModule, only : selectIndexesBasedOnMask
         integer, dimension(nMatingPairs) :: familyGeneration
-        integer nGenerations, i
+        integer :: i
 
         do i = 1, nMatingPairs
             familyGeneration(i) = offspringList(i)%first%item%generation
@@ -177,7 +177,7 @@ module AlphaMLPModule
             familiesInGeneration(i)%array = selectIndexesBasedOnMask(familyGeneration == i)
             print *, i, familiesInGeneration(i)%array
         enddo
-
+        print *, nGenerations
     end subroutine
 
     subroutine setupHMM()
@@ -653,13 +653,15 @@ module AlphaMLPModule
         real(kind=real64), dimension(nAnimals) :: genotypeEstimates, weights, previousGenotypeEstimate
         real(kind=real64), dimension(:), allocatable :: overrideEstimate
         real(kind=real64), dimension(:,:), allocatable :: tmpVect
+        real(kind=real64), dimension(:,:), pointer :: posterior
+        real(kind=real64), dimension(:,:), allocatable :: oldPosteriorSire, oldPosteriorDame
 
         integer, dimension(:), allocatable :: ref, alt
-
+        integer, dimension(:), allocatable :: tmpFamilyList
         ! real(kind=real64), dimension(4,4) :: segregationTransmissionMatrix
         real(kind=real64) :: error
         real(kind=real64) :: p, q, pf
-        integer :: i, j
+        integer :: i, j, fam, father, mate
         type(peelingEstimates), pointer :: markerEstimates
         logical :: usePhaseOverride
 
@@ -720,6 +722,9 @@ module AlphaMLPModule
         markerEstimates%sirePosteriorMate = markerEstimates%sirePosteriorMateAll(:,:,runType)
         markerEstimates%damePosteriorMate = markerEstimates%damePosteriorMateAll(:,:,runType)
         markerEstimates%posterior = markerEstimates%posteriorAll(:,:,runType)
+        posterior => markerEstimates%posterior
+        oldPosteriorSire = markerEstimates%sirePosteriorMate
+        oldPosteriorDame = markerEstimates%damePosteriorMate
 
         !Build segregation.
 
@@ -738,16 +743,44 @@ module AlphaMLPModule
             enddo
         endif
         
-        !!$omp parallel do
-        do i= 1, nMatingPairs           
-            call peelDown(markerEstimates, i)
-        enddo
-        !!$omp end parallel do
+        do i = 1, nGenerations
+            tmpFamilyList = familiesInGeneration(i)%array
+            ! print *, i, "size", size(tmpFamilyList)
+            !$omp parallel do &
+            !$omp private(j, fam)  
+            do j= 1,size(tmpFamilyList)      
+                fam = tmpFamilyList(j)        
+                call peelDown(markerEstimates, fam)
+            enddo
+            !$omp end parallel do
+        enddo 
+        
 
-        do i=nMatingPairs, 1, -1               
-            call updateSegregation(markerEstimates, i)
-            call peelUp(markerEstimates, i)
-        enddo
+        do i = nGenerations, 1 -1
+            tmpFamilyList = familiesInGeneration(i)%array
+            
+            !$omp parallel do &     
+            !$omp private(j, fam)   
+            do j= 1, size(tmpFamilyList)   
+                fam = tmpFamilyList(j)        
+                call updateSegregation(markerEstimates, fam)
+                call peelUp(markerEstimates, fam)
+            enddo
+            !$omp end parallel do
+
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)
+                father = listOfParents(1, fam)
+                mate = listOfParents(2, fam)
+                
+                posterior(:,father) = posterior(:,father) - oldPosteriorSire(:,fam) + markerEstimates%sirePosteriorMate(:, fam)
+                posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
+                
+                posterior(:,mate) = posterior(:,mate) - oldPosteriorDame(:,fam) + markerEstimates%damePosteriorMate(:, fam)
+                posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
+            enddo
+
+        enddo 
 
         !Now do post segregation updating.
         !Isn't this all currentSegregationEstimate -- yes, but it's saving it to different slots.
@@ -867,6 +900,7 @@ module AlphaMLPModule
         use blas95
         implicit none        
         type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
+        integer, intent(in) :: fam
         real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
         real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
         real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
@@ -874,7 +908,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:,:), pointer, contiguous :: temp 
         integer, dimension(:), allocatable :: offspring
         integer :: father, mate, nChildren, child
-        integer fam, j
+        integer j
 
         anterior => markerEstimates%anterior
         penetrance => markerEstimates%penetrance
@@ -891,19 +925,17 @@ module AlphaMLPModule
         call additiveOuterProduct(pmate, pfather, pjoint)
         call additiveOuterProductSpread(pmate, pfather, pjoint)
         
-        nChildren = offspringList(fam)%length
-        allocate(offspring(nChildren))
-        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
-        offspring = offspringList(fam)%convertToArrayIDs()
         
-        ! !$omp parallel do &
+        offspring = offspringList(fam)%convertToArrayIDs()
+        nChildren = offspringList(fam)%length
+        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
+        
         do j=1, nChildren
             child = offspring(j)
             temp => markerEstimates%currentSegregationTensors(:,:,:,child)
             childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child) + posterior(:, child), temp)
             childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
         enddo
-        ! !omp end parallel do
 
         pjoint = pjoint + sum(childEstimate, dim=3)
         !MP
@@ -982,13 +1014,13 @@ module AlphaMLPModule
         enddo
 
         tempEstimate = jointByMateToFather(pmate, pjoint)
-        posterior(:,father) = posterior(:,father) - sirePosteriorMate(:,fam)  + tempEstimate
-        posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
+        ! posterior(:,father) = posterior(:,father) - sirePosteriorMate(:,fam)  + tempEstimate
+        ! posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
         sirePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
 
         tempEstimate = jointByFatherToMate(pfather, pjoint)
-        posterior(:,mate) = posterior(:,mate) - damePosteriorMate(:,fam) + tempEstimate
-        posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
+        ! posterior(:,mate) = posterior(:,mate) - damePosteriorMate(:,fam) + tempEstimate
+        ! posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
         damePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
     
         deallocate(offspring)
