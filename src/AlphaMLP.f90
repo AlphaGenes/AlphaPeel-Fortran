@@ -934,7 +934,7 @@ module AlphaMLPModule
             child = offspring(j)
             temp => markerEstimates%currentSegregationTensors(:,:,:,child)
             childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child) + posterior(:, child), temp)
-            childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
+            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
         enddo
 
         pjoint = pjoint + sum(childEstimate, dim=3)
@@ -1006,7 +1006,7 @@ module AlphaMLPModule
             child = offspring(j)
             childTrace => buildTraceTensor(markerEstimates%currentSegregationEstimate(:,child)*markerEstimates%pointSegregation(:,child))
             tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), childTrace)
-            tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
+            ! tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
         
             pjoint = pjoint + tmp
            
@@ -1072,7 +1072,7 @@ module AlphaMLPModule
             child = offspring(j)
             temp => markerEstimates%currentSegregationTensors(:,:,:,child)
             childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), temp)
-            childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
+            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
             pjoint = pjoint + childEstimate(:,:,j)
         enddo
         !MP
@@ -1081,7 +1081,7 @@ module AlphaMLPModule
             if(.not. isPhasedChild(child)) then
                 ! newPointEstimate(:,child) = reduceSegregationTensor(anterior(:,child)+posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
                 newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
-                newPointEstimate(:,child) = reduceSegregationTensorMKL(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
+                ! newPointEstimate(:,child) = reduceSegregationTensorMKL(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
             endif
         enddo
         deallocate(offspring, childEstimate)
