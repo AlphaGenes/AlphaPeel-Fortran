@@ -746,27 +746,27 @@ module AlphaMLPModule
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
             ! print *, i, "size", size(tmpFamilyList)
-            !$omp parallel do &
-            !$omp private(j, fam)  
+         !   !$omp parallel do &
+          !  !$omp private(j, fam)  
             do j= 1,size(tmpFamilyList)      
                 fam = tmpFamilyList(j)        
                 call peelDown(markerEstimates, fam)
             enddo
-            !$omp end parallel do
+           ! !$omp end parallel do
         enddo 
         
 
         do i = nGenerations, 1 -1
             tmpFamilyList = familiesInGeneration(i)%array
             
-            !$omp parallel do &     
-            !$omp private(j, fam)   
+            !!$omp parallel do &     
+            !!$omp private(j, fam)   
             do j= 1, size(tmpFamilyList)   
                 fam = tmpFamilyList(j)        
                 call updateSegregation(markerEstimates, fam)
                 call peelUp(markerEstimates, fam)
             enddo
-            !$omp end parallel do
+            !!$omp end parallel do
 
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)
@@ -1527,7 +1527,7 @@ module AlphaMLPModule
             write(outputFile(index), '(60000f10.4)') combinedHaplotypes(4,:, i)
             write(outputFile(index), *) " " 
         enddo
-
+        threshold = .9
         do i = 1, nAnimals
             individualGenotype = 9
             do j = 1, nSnps
