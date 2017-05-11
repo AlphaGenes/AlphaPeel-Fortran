@@ -661,7 +661,7 @@ module AlphaMLPModule
         ! real(kind=real64), dimension(4,4) :: segregationTransmissionMatrix
         real(kind=real64) :: error
         real(kind=real64) :: p, q, pf
-        integer :: i, j, fam, father, mate
+        integer :: i, j, fam, father, mate, k, nblocks, blockSize
         type(peelingEstimates), pointer :: markerEstimates
         logical :: usePhaseOverride
 
@@ -742,28 +742,34 @@ module AlphaMLPModule
                 endif
             enddo
         endif
-        
+        nblocks = 8
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
             ! print *, i, "size", size(tmpFamilyList)
+            blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
+
            !$omp parallel do &
-           !$omp private(j, fam)  
-            do j= 1,size(tmpFamilyList)      
-                fam = tmpFamilyList(j)        
-                call peelDown(markerEstimates, fam)
+           !$omp private(j, k, fam)  
+            do k = 1, nblocks
+                do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
+                    fam = tmpFamilyList(j)        
+                    call peelDown(markerEstimates, fam)
+                enddo
             enddo
            !$omp end parallel do
         enddo 
         
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
-            
-            !$omp parallel do &     
-            !$omp private(j, fam)   
-            do j= 1, size(tmpFamilyList)   
-                fam = tmpFamilyList(j)        
-                call updateSegregation(markerEstimates, fam)
-                call peelUp(markerEstimates, fam)
+            blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
+            !$omp parallel do &
+            !$omp private(j, k, fam)  
+            do k = 1, nblocks
+                do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
+                    fam = tmpFamilyList(j)        
+                    call updateSegregation(markerEstimates, fam)
+                    call peelUp(markerEstimates, fam)
+                enddo
             enddo
             !$omp end parallel do
 
