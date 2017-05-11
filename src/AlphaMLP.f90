@@ -755,8 +755,8 @@ module AlphaMLPModule
            ! !$omp end parallel do
         enddo 
         
-
-        do i = nGenerations, 1 -1
+        print *, "Generations", nGenerations
+        do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
             
             !!$omp parallel do &     
