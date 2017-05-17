@@ -180,68 +180,68 @@ module AlphaMLPModule
         print *, nGenerations
     end subroutine
 
-    subroutine setupHMM()
-        use Global
-        use AlphaImputeModule
-        use informationModule
-        use GlobalVariablesHmmMaCH
-        use Output
-        use AlphaImputeInMod
-        use Imputation
-        use InputMod
-        use globalGP, only : nPseudoFounders
-        implicit none
-        character(len=4096) :: SpecFile
-        specfile="AlphaImputeSpec.txt"
+    ! subroutine setupHMM()
+    !     use Global
+    !     use AlphaImputeModule
+    !     use informationModule
+    !     use GlobalVariablesHmmMaCH
+    !     use Output
+    !     use AlphaImputeInMod
+    !     use Imputation
+    !     use InputMod
+    !     use globalGP, only : nPseudoFounders
+    !     implicit none
+    !     character(len=4096) :: SpecFile
+    !     specfile="AlphaImputeSpec.txt"
 
-        allocate(defaultInput)
-        call defaultInput%ReadInParameterFile(SpecFile)
-        inputParams => defaultInput
-        call CountInData
-        call ReadInData
-        print *, "Loaded Input:", defaultInput%nSnp
-        allocate(inputGenotypeProbabilitiesFromGeneprob(4, nPseudoFounders, defaultInput%nSnp))
-        call MakeFiles
+    !     allocate(defaultInput)
+    !     call defaultInput%ReadInParameterFile(SpecFile)
+    !     inputParams => defaultInput
+    !     call CountInData
+    !     call ReadInData
+    !     print *, "Loaded Input:", defaultInput%nSnp
+    !     allocate(inputGenotypeProbabilitiesFromGeneprob(4, nPseudoFounders, defaultInput%nSnp))
+    !     call MakeFiles
 
-        if(allocated(ImputeGenos)) deallocate(ImputeGenos)
-        if(allocated(ImputePhase)) deallocate(ImputePhase)
-        allocate(ImputeGenos(1:nPseudoFounders,inputParams%nsnp))
-        allocate(ImputePhase(1:nPseudoFounders,inputParams%nsnp,2))
-        ImputePhase=9
-        ImputeGenos=9
-        inputParams%HMMOption = RUN_HMM_GeneProb
-        inputParams%nroundshmm = 20
-        inputParams%hmmburninround = 5
-        call ped%addGenotypeInformation(inputParams%GenotypeFile,inputParams%nsnp,NanisG)
-        print *, "finished adding genotypes"
-    end subroutine
+    !     if(allocated(ImputeGenos)) deallocate(ImputeGenos)
+    !     if(allocated(ImputePhase)) deallocate(ImputePhase)
+    !     allocate(ImputeGenos(1:nPseudoFounders,inputParams%nsnp))
+    !     allocate(ImputePhase(1:nPseudoFounders,inputParams%nsnp,2))
+    !     ImputePhase=9
+    !     ImputeGenos=9
+    !     inputParams%HMMOption = RUN_HMM_GeneProb
+    !     inputParams%nroundshmm = 20
+    !     inputParams%hmmburninround = 5
+    !     call ped%addGenotypeInformation(inputParams%GenotypeFile,inputParams%nsnp,NanisG)
+    !     print *, "finished adding genotypes"
+    ! end subroutine
 
-    subroutine runHMMOnFounders(genotypes, hmmEstimate)
-        use Global
-        use GlobalVariablesHmmMaCH
-        use Imputation
-        implicit none
-        real(kind=real64), dimension(:,:,:), intent(inout):: hmmEstimate
-        integer(kind=1), dimension(:,:), allocatable, intent(in) :: genotypes
+    ! subroutine runHMMOnFounders(genotypes, hmmEstimate)
+    !     use Global
+    !     use GlobalVariablesHmmMaCH
+    !     use Imputation
+    !     implicit none
+    !     real(kind=real64), dimension(:,:,:), intent(inout):: hmmEstimate
+    !     integer(kind=1), dimension(:,:), allocatable, intent(in) :: genotypes
         
-        print *, "Really running HMM"
+    !     print *, "Really running HMM"
 
-        print *, size(ImputeGenos, 1), size(ImputeGenos,2)
-        print *, size(genotypes, 1), size(genotypes,2)
-        ImputeGenos(1:nPseudoFounders,:) = genotypes
+    !     print *, size(ImputeGenos, 1), size(ImputeGenos,2)
+    !     print *, size(genotypes, 1), size(genotypes,2)
+    !     ImputeGenos(1:nPseudoFounders,:) = genotypes
 
-        print *, "Really, really running HMM"
-        call MaCHController(RUN_HMM_GeneProb)
+    !     print *, "Really, really running HMM"
+    !     call MaCHController(RUN_HMM_GeneProb)
     
-        print *, size(realGenosCounts, 1), size(realGenosCounts, 2), size(realGenosCounts, 3)
-        print *, size(hmmEstimate, 1),size(hmmEstimate, 2), size(hmmEstimate ,3)
-        hmmEstimate(1,:,:) = 1. - realGenosCounts(:,:, 1) - realGenosCounts(:,:, 2)
-        hmmEstimate(2,:,:) = realGenosCounts(:,:, 1)
-        hmmEstimate(3,:,:) = realGenosCounts(:,:, 2)
+    !     print *, size(realGenosCounts, 1), size(realGenosCounts, 2), size(realGenosCounts, 3)
+    !     print *, size(hmmEstimate, 1),size(hmmEstimate, 2), size(hmmEstimate ,3)
+    !     hmmEstimate(1,:,:) = 1. - realGenosCounts(:,:, 1) - realGenosCounts(:,:, 2)
+    !     hmmEstimate(2,:,:) = realGenosCounts(:,:, 1)
+    !     hmmEstimate(3,:,:) = realGenosCounts(:,:, 2)
 
-        print *, hmmEstimate(1:3, 1:5, 1:5)
+    !     print *, hmmEstimate(1:3, 1:5, 1:5)
 
-    end subroutine
+    ! end subroutine
 
 
     !---------------------------------------------------------------------------
@@ -550,32 +550,32 @@ module AlphaMLPModule
         firstRun = .true.
 
         nRounds = 1
-        if(inputParams%useHMM) then
-            print *, "Using HMM"
-            nRounds = 2 !No HMM: nRounds = 1; HMM: nRounds = 2
-            call setupPseudoFounders()
-        endif
+        ! if(inputParams%useHMM) then
+        !     print *, "Using HMM"
+        !     nRounds = 2 !No HMM: nRounds = 1; HMM: nRounds = 2
+        !     call setupPseudoFounders()
+        ! endif
         nCycles = inputParams%nCycles
 
         do roundNumber = 1, nRounds
             print *, "Round ", roundNumber
 
-            if(.not. firstRun .and. inputParams%useHMM) then
-                !Handle the HMM
-                call setupHMM()
-                allocate(hmmEstimate(3,nPseudoFounders,nSnps))
-                allocate(genotypes(nPseudoFounders, nSnps))
-                do i = 1, nPseudoFounders
-                    tmpInd = pedigree%pedigree(i)
-                    genotypes(i,:) = tmpInd%individualGenotype%toIntegerArray()
-                enddo
-                !Pass a subset of genotypes (only psuedoFounders) and use those genotypes to phase.
-                call runHMMOnFounders(genotypes, hmmEstimate)
-                do i = 1, nSnps
-                    currentPeelingEstimates(i)%postHMM = .true.
-                    currentPeelingEstimates(i)%hmmEstimate = hmmEstimate(:,:,i)
-                enddo
-            endif
+            ! if(.not. firstRun .and. inputParams%useHMM) then
+            !     !Handle the HMM
+            !     call setupHMM()
+            !     allocate(hmmEstimate(3,nPseudoFounders,nSnps))
+            !     allocate(genotypes(nPseudoFounders, nSnps))
+            !     do i = 1, nPseudoFounders
+            !         tmpInd = pedigree%pedigree(i)
+            !         genotypes(i,:) = tmpInd%individualGenotype%toIntegerArray()
+            !     enddo
+            !     !Pass a subset of genotypes (only psuedoFounders) and use those genotypes to phase.
+            !     call runHMMOnFounders(genotypes, hmmEstimate)
+            !     do i = 1, nSnps
+            !         currentPeelingEstimates(i)%postHMM = .true.
+            !         currentPeelingEstimates(i)%hmmEstimate = hmmEstimate(:,:,i)
+            !     enddo
+            ! endif
             firstRun = .false.
 
             !Handle the Multilocus Peeler
