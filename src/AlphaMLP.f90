@@ -143,9 +143,9 @@ module AlphaMLPModule
         call setupTraceTensor
         !For each allele, run gene prob on that index.
 
-        do i = 1, 2
+        do i = 1, 1 !2
             open(newunit = outputFile(i), FILE = "multiLocusHaplotypes" // x(i) // ".txt", status="replace", access="append")
-            open(newunit = auxFile(i), FILE = "multiLocusGenotypesNoPhase" // x(i) // ".txt", status="replace", access="append")
+            open(newunit = auxFile(i), FILE = "multiLocusGenotypes" // x(i) // ".txt", status="replace", access="append")
             open(newunit = segregationFile(i), FILE = "segregationEstimates" // x(i) //".txt", status="replace", access="append")
             open(newunit = consensusFile(i), FILE = "pointGenotypes" // x(i) //".txt", status="replace", access="append")
             open(newunit = paramaterFile(i), FILE = "paramaterEstimates" // x(i) // ".txt", status="replace", access="append")
@@ -1503,6 +1503,7 @@ module AlphaMLPModule
         type(peelingEstimates), pointer :: markerEstimates
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
         real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
+        real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
         integer, dimension(nSnps) :: individualGenotype
         real(kind=real64) :: threshold
 
@@ -1513,7 +1514,6 @@ module AlphaMLPModule
         write(paramaterFile(index), '(a, a, a)') "maf ", "gError ", "tError"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
-            write(auxFile(index), '(60000f10.4)') markerEstimates%genotypeEstimates(:)
             write(paramaterFile(index), '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate
         enddo
 
@@ -1526,11 +1526,21 @@ module AlphaMLPModule
         enddo
 
         do i = 1, nAnimals
-            write(outputFile(index), '(60000f10.4)') combinedHaplotypes(1,:, i)
-            write(outputFile(index), '(60000f10.4)') combinedHaplotypes(2,:, i)
-            write(outputFile(index), '(60000f10.4)') combinedHaplotypes(3,:, i)
-            write(outputFile(index), '(60000f10.4)') combinedHaplotypes(4,:, i)
+            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
+            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
+            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
+            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
             write(outputFile(index), *) " " 
+        enddo
+
+        allocate(combinedGenotypes(nSnps, nAnimals))
+        do i = 1, nSnps
+            markerEstimates => currentPeelingEstimates(i)
+            combinedGenotypes(i, :) = markerEstimates%genotypeEstimates(:)
+        enddo
+
+        do i = 1, nAnimals
+            write(auxFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
         threshold = .9
         do i = 1, nAnimals

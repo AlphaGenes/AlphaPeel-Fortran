@@ -297,31 +297,4 @@
         end subroutine readSequence
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 end module AlphaMLPInputModule
