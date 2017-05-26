@@ -556,7 +556,7 @@ module AlphaMLPModule
         !     call setupPseudoFounders()
         ! endif
         nCycles = inputParams%nCycles
-
+        print *, nCycles
         do roundNumber = 1, nRounds
             print *, "Round ", roundNumber
 
@@ -599,7 +599,7 @@ module AlphaMLPModule
                 enddo
                 if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
                 cycleIndex = cycleIndex + 1
-                call updateAllRecombinationRates(currentPeelingEstimates)
+                ! call updateAllRecombinationRates(currentPeelingEstimates)
             enddo
 
             if (present(writeOutputs)) then
@@ -671,6 +671,7 @@ module AlphaMLPModule
             updateParams = .false.
         endif
 
+
         markerEstimates => currentPeelingEstimates(indexNumber)
         call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
         
@@ -727,9 +728,10 @@ module AlphaMLPModule
         oldPosteriorDame = markerEstimates%damePosteriorMate
 
         !Build segregation.
-
+        
         call getSegregationEstimate(markerEstimates, currentPeelingEstimates, indexNumber, runType)
         call buildSegregationTraceTensor(markerEstimates)
+
 
         !Run Analysis
 
@@ -745,24 +747,22 @@ module AlphaMLPModule
         nblocks = 8
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
-            ! print *, i, "size", size(tmpFamilyList)
             blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
-
-           !$omp parallel do &
-           !$omp private(j, k, fam)  
+            !$omp parallel do &
+            !$omp private(j, k, fam)  
             do k = 1, nblocks
                 do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
                     fam = tmpFamilyList(j)        
                     call peelDown(markerEstimates, fam)
                 enddo
             enddo
-           !$omp end parallel do
+            !$omp end parallel do
         enddo 
-        
+
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
             blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
-            !$omp parallel do &
+            !$omp parallel do default(shared) &
             !$omp private(j, k, fam)  
             do k = 1, nblocks
                 do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
@@ -820,7 +820,7 @@ module AlphaMLPModule
         endif
         
         if(updateParams) then
-            ! call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
+            call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
             ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
             if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, haplotypeEstimates, markerEstimates)
             if(inputParams%isSequence) call updateSequenceErrorRates(ref, alt, haplotypeEstimates, markerEstimates)
@@ -1017,17 +1017,14 @@ module AlphaMLPModule
            
             deallocate(childTrace)
         enddo
-
         tempEstimate = jointByMateToFather(pmate, pjoint)
         ! posterior(:,father) = posterior(:,father) - sirePosteriorMate(:,fam)  + tempEstimate
         ! posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
         sirePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
-
         tempEstimate = jointByFatherToMate(pfather, pjoint)
         ! posterior(:,mate) = posterior(:,mate) - damePosteriorMate(:,fam) + tempEstimate
         ! posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
         damePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
-    
         deallocate(offspring)
 
     end subroutine
@@ -1084,9 +1081,7 @@ module AlphaMLPModule
         do j=1, nChildren
             child = offspring(j)
             if(.not. isPhasedChild(child)) then
-                ! newPointEstimate(:,child) = reduceSegregationTensor(anterior(:,child)+posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
                 newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
-                ! newPointEstimate(:,child) = reduceSegregationTensorMKL(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
             endif
         enddo
         deallocate(offspring, childEstimate)
@@ -1154,6 +1149,7 @@ module AlphaMLPModule
         ! for each seg option pp, pm, mp, mm
         expChildGenotypes = exp(childGenotypes-maxval(childGenotypes))
         expJoint = exp(parentJointGenotypes-maxval(parentJointGenotypes))
+        collapsedEstimate = 0
         do seg=1, 4
             !Do for each child allele, aa, aA, Aa, AA
             do allele = 1, 4
@@ -1330,10 +1326,11 @@ module AlphaMLPModule
 
         real(kind=real64), dimension(4,nAnimals) :: zi, plusZeroSegregation, plusOneSegregation
         real(kind=real64), dimension(4) :: normalizedEstimate
-        real(kind=real64), dimension(4,4) :: transmissionMatrix
+        real(kind=real64), dimension(4,4) :: transmissionMatrix, estimate
         real(kind=real64) :: nChanges, nObservations, observedChangeRate
+        real(kind=real64) :: diagonalSum
         ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
-        integer i, j, indexNumber
+        integer i, j, indexNumber, ind
 
         !We update n to n+1 here.
         transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
@@ -1344,24 +1341,27 @@ module AlphaMLPModule
 
         if(indexNumber < nSnps) then 
             nObservations = nObservations + nAnimals
-            plusZeroSegregation = markerEstimates%fullSegregation
-            plusOneSegregation = currentPeelingEstimates(indexNumber+1)%fullSegregation
-            
-            zi = 0
-            do i = 1, nAnimals
-                do j= 1, 4
-                    normalizedEstimate = plusZeroSegregation(:,i) * transmissionMatrix(:,j)
-                    normalizedEstimate = normalizedEstimate/sum(normalizedEstimate)
-                    zi(j, i) = zi(j, i) + plusOneSegregation(j,i) * (1-normalizedEstimate(j))
+            plusZeroSegregation = markerEstimates%transmitForward
+            plusOneSegregation = currentPeelingEstimates(indexNumber+1)%transmitBackward
+            do ind = 1, nAnimals
+                estimate = transmissionMatrix
+                do j = 1, 4
+                    estimate(j, :) = estimate(j,:) * plusZeroSegregation(:, ind)
                 enddo
+                do j = 1, 4
+                    estimate(:,j) = estimate(:,j) * plusOneSegregation(:, ind)
+                enddo
+                estimate = estimate/sum(estimate)
+                diagonalSum = 0
+                do j = 1, 4
+                    diagonalSum = diagonalSum + estimate(j, j)
+                enddo
+                nChanges = nChanges + 1-diagonalSum
             enddo
-            nChanges = nChanges + sum(zi)
-        endif
 
+        endif
         observedChangeRate = nChanges/nObservations
-        print *, "change rate", observedChangeRate
-        ! print *, indexNumber, " ", nChanges, " ", nObservations
-        ! print *, indexNumber, " ", observedChangeRate
+        ! print *, "change rate", observedChangeRate
 
         ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
         ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
@@ -1373,61 +1373,63 @@ module AlphaMLPModule
 
 
 
-    subroutine updateAllRecombinationRates(currentPeelingEstimates)
-        use globalGP, only:  nAnimals, nSnps
-        use fixedPointModule
-        implicit none
-        type(peelingEstimates), pointer :: markerEstimates
-        type(PeelingEstimates), dimension(:), pointer :: currentPeelingEstimates
+    ! subroutine updateAllRecombinationRates(currentPeelingEstimates)
+    !     use globalGP, only:  nAnimals, nSnps
+    !     use fixedPointModule
+    !     implicit none
+    !     type(peelingEstimates), pointer :: markerEstimates
+    !     type(PeelingEstimates), dimension(:), pointer :: currentPeelingEstimates
 
-        real(kind=real64), dimension(4,nAnimals) :: zi, plusZeroSegregation, plusOneSegregation
-        real(kind=real64), dimension(4) :: normalizedEstimate
-        real(kind=real64), dimension(4,4) :: transmissionMatrix
-        real(kind=real64) :: nChanges, nObservations, observedChangeRate
-        ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
-        integer i, j, indexNumber
+    !     real(kind=real64), dimension(4,nAnimals) :: zi, plusZeroSegregation, plusOneSegregation
+    !     real(kind=real64), dimension(4) :: normalizedEstimate
+    !     real(kind=real64), dimension(4,4) :: transmissionMatrix
+    !     real(kind=real64) :: nChanges, nObservations, observedChangeRate
+    !     ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
+    !     integer i, j, indexNumber
 
-        !We update n to n+1 here.
-        markerEstimates => currentPeelingEstimates(1)
-        print *, markerEstimates%recombinationRate
-        transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
+    !     !We update n to n+1 here.
+    !     markerEstimates => currentPeelingEstimates(1)
+    !     print *, markerEstimates%recombinationRate
 
 
-        nChanges = .01
-        nObservations = 1.0
-        do indexNumber = 1, nSnps-1
-            if(indexNumber < nSnps) then 
-                nObservations = nObservations + nAnimals
-                plusZeroSegregation = currentPeelingEstimates(indexNumber)%fullSegregation
-                plusOneSegregation = currentPeelingEstimates(indexNumber+1)%fullSegregation
+    !     transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
+    !     print *, transmissionMatrix
 
-                zi = 0
-                do i = 1, nAnimals
-                    do j= 1, 4
-                        normalizedEstimate = plusZeroSegregation(:,i) * transmissionMatrix(:,j)
-                        normalizedEstimate = normalizedEstimate/sum(normalizedEstimate)
-                        zi(j, i) = zi(j, i) + plusOneSegregation(j,i) * (1-normalizedEstimate(j))
-                    enddo
-                enddo
-                nChanges = nChanges + sum(zi)
-            endif
-        enddo
-        ! print *, "obs", nChanges, nObservations
-        observedChangeRate = nChanges/nObservations
-        print *, indexNumber, " ", nChanges, " ", nObservations
-        print *, indexNumber, " ", observedChangeRate
+    !     nChanges = .01
+    !     nObservations = 1.0
+    !     do indexNumber = 1, nSnps-1
+    !         if(indexNumber < nSnps) then 
+    !             nObservations = nObservations + nAnimals
+    !             plusZeroSegregation = currentPeelingEstimates(indexNumber)%fullSegregation
+    !             plusOneSegregation = currentPeelingEstimates(indexNumber+1)%fullSegregation
+
+    !             zi = 0
+    !             do i = 1, nAnimals
+    !                 do j= 1, 4
+    !                     normalizedEstimate = plusZeroSegregation(:,i) * transmissionMatrix(:,j)
+    !                     normalizedEstimate = normalizedEstimate/sum(normalizedEstimate)
+    !                     zi(j, i) = zi(j, i) + plusOneSegregation(j,i) * (1-normalizedEstimate(j))
+    !                 enddo
+    !             enddo
+    !             nChanges = nChanges + sum(zi)
+    !         endif
+    !     enddo
+    !     ! print *, "obs", nChanges, nObservations
+    !     observedChangeRate = nChanges/nObservations
+    !     print *, indexNumber, " ", nChanges, " ", nObservations
+    !     print *, indexNumber, " ", observedChangeRate
         
-        ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
-        ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
-        ! observedChangeRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
+    !     ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
+    !     ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
+    !     ! observedChangeRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
 
-        print *, "change rate", observedChangeRate
+    !     print *, "change rate", observedChangeRate
 
-        do indexNumber = 1, nSnps
-            currentPeelingEstimates(indexNumber)%recombinationRate = observedChangeRate
-        enddo
+    !     do indexNumber = 1, nSnps
+    !         currentPeelingEstimates(indexNumber)%recombinationRate = observedChangeRate
+    !     enddo
 
-    end subroutine
+    ! end subroutine
 
 
     subroutine updateGenotypeErrorRates(genotypes, haplotypes, markerEstimates)

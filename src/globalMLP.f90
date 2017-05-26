@@ -93,9 +93,9 @@ module globalGP
 
             this%genotypeEstimates = 0
 
-            this%posterior = 0
-            this%sirePosteriorMate = 0
-            this%damePosteriorMate = 0
+            this%posteriorAll = 0
+            this%sirePosteriorMateAll = 0
+            this%damePosteriorMateAll = 0
 
             this%postHMM = .false.
 
