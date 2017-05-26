@@ -10,7 +10,7 @@ module globalGP
     type(AlphaMLPInput) :: inputParams
 
     integer(kind=4) :: nHaplotypes = 4, nAnimals, nMatingPairs
-    integer :: nSnps, nPseudoFounders
+    integer :: nSnps, nPseudoFounders, nSnpsAll
     integer, dimension(:), allocatable :: founders, phaseChildren, generations, pseudoFounders
     integer, dimension(:, :), allocatable :: listOfParents
 
@@ -69,10 +69,10 @@ module globalGP
     end type peelingEstimates
 
     contains 
-        subroutine initializePeelingEstimates(this, nHaplotypes, nAnimals, nMatingPairs)
+        subroutine initializePeelingEstimates(this, nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
             implicit none
             class(peelingEstimates) :: this
-            integer :: nHaplotypes, nAnimals, nMatingPairs
+            integer :: nHaplotypes, nAnimals, nMatingPairs, nSnpsAll
 
             allocate(this%posteriorAll(nHaplotypes, nAnimals,3))
             allocate(this%sirePosteriorMateAll(nHaplotypes, nMatingPairs,3))
@@ -100,7 +100,7 @@ module globalGP
             this%postHMM = .false.
 
             this%genotypingErrorRate = .01
-            this%recombinationRate = .0001
+            this%recombinationRate = 1d0/nSnpsAll
             this%maf = .5
             allocate(this%recombinationEstimator)
             allocate(this%genotypingErrorEstimator)

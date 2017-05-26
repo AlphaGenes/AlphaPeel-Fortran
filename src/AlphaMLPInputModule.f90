@@ -277,7 +277,7 @@
                 read (unit,*) seqid, alt(:)
 
                 tmpID = pedigree%dictionary%getValue(seqid)
-
+                print *, tmpID
                 sequenceData(:, 1, tmpId) = ref(:)
                 sequenceData(:, 2, tmpId) = alt(:)
 

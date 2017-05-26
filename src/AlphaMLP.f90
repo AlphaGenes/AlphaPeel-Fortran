@@ -84,7 +84,7 @@ module AlphaMLPModule
         
         call setupTraceTensor
         nSnps = inputParams%endSnp-inputParams%startSnp+1
- 
+        nSnpsAll = inputParams%nSnp
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
 
@@ -116,21 +116,14 @@ module AlphaMLPModule
         use globalGP, only: nSnps, sequenceData, inputParams
         implicit none
         integer :: i
-        character(len=1), dimension(2) :: x
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
 
 
-        x = ["1", "2"]
         inputParams = AlphaMLPInput()        
         print *, "setup Pedigree"
 
         call setupPedigree(inputParams)
         call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
-
-        print *, "read genotypes"
-
-        if(inputParams%isSequence) call readSequence(inputParams, pedigree, sequenceData)
-
 
         print *, "setup founder phasing"
 
@@ -143,14 +136,14 @@ module AlphaMLPModule
         call setupTraceTensor
         !For each allele, run gene prob on that index.
 
-        do i = 1, 1 !2
-            open(newunit = outputFile(i), FILE = "multiLocusHaplotypes" // x(i) // ".txt", status="replace", access="append")
-            open(newunit = auxFile(i), FILE = "multiLocusGenotypes" // x(i) // ".txt", status="replace", access="append")
-            open(newunit = segregationFile(i), FILE = "segregationEstimates" // x(i) //".txt", status="replace", access="append")
-            open(newunit = consensusFile(i), FILE = "pointGenotypes" // x(i) //".txt", status="replace", access="append")
-            open(newunit = paramaterFile(i), FILE = "paramaterEstimates" // x(i) // ".txt", status="replace", access="append")
-        enddo
+        open(newunit = outputFile(1), FILE = "multiLocusHaplotypes.txt", status="replace")
+        open(newunit = auxFile(1), FILE = "multiLocusGenotypes.txt", status="replace")
+        open(newunit = segregationFile(1), FILE = "segregationEstimates.txt", status="replace")
+        open(newunit = consensusFile(1), FILE = "pointGenotypes.txt", status="replace")
+        open(newunit = paramaterFile(1), FILE = "paramaterEstimates.txt", status="replace")
+    
         nSnps = inputParams%endSnp-inputParams%startSnp+1
+        nSnpsAll = inputParams%nSnp
         print *, "run AlphaMLP"
         call setupGenerations()
         call runMultiLocusAlphaMLP(currentPeelingEstimates, 1)
@@ -180,70 +173,6 @@ module AlphaMLPModule
         print *, nGenerations
     end subroutine
 
-    ! subroutine setupHMM()
-    !     use Global
-    !     use AlphaImputeModule
-    !     use informationModule
-    !     use GlobalVariablesHmmMaCH
-    !     use Output
-    !     use AlphaImputeInMod
-    !     use Imputation
-    !     use InputMod
-    !     use globalGP, only : nPseudoFounders
-    !     implicit none
-    !     character(len=4096) :: SpecFile
-    !     specfile="AlphaImputeSpec.txt"
-
-    !     allocate(defaultInput)
-    !     call defaultInput%ReadInParameterFile(SpecFile)
-    !     inputParams => defaultInput
-    !     call CountInData
-    !     call ReadInData
-    !     print *, "Loaded Input:", defaultInput%nSnp
-    !     allocate(inputGenotypeProbabilitiesFromGeneprob(4, nPseudoFounders, defaultInput%nSnp))
-    !     call MakeFiles
-
-    !     if(allocated(ImputeGenos)) deallocate(ImputeGenos)
-    !     if(allocated(ImputePhase)) deallocate(ImputePhase)
-    !     allocate(ImputeGenos(1:nPseudoFounders,inputParams%nsnp))
-    !     allocate(ImputePhase(1:nPseudoFounders,inputParams%nsnp,2))
-    !     ImputePhase=9
-    !     ImputeGenos=9
-    !     inputParams%HMMOption = RUN_HMM_GeneProb
-    !     inputParams%nroundshmm = 20
-    !     inputParams%hmmburninround = 5
-    !     call ped%addGenotypeInformation(inputParams%GenotypeFile,inputParams%nsnp,NanisG)
-    !     print *, "finished adding genotypes"
-    ! end subroutine
-
-    ! subroutine runHMMOnFounders(genotypes, hmmEstimate)
-    !     use Global
-    !     use GlobalVariablesHmmMaCH
-    !     use Imputation
-    !     implicit none
-    !     real(kind=real64), dimension(:,:,:), intent(inout):: hmmEstimate
-    !     integer(kind=1), dimension(:,:), allocatable, intent(in) :: genotypes
-        
-    !     print *, "Really running HMM"
-
-    !     print *, size(ImputeGenos, 1), size(ImputeGenos,2)
-    !     print *, size(genotypes, 1), size(genotypes,2)
-    !     ImputeGenos(1:nPseudoFounders,:) = genotypes
-
-    !     print *, "Really, really running HMM"
-    !     call MaCHController(RUN_HMM_GeneProb)
-    
-    !     print *, size(realGenosCounts, 1), size(realGenosCounts, 2), size(realGenosCounts, 3)
-    !     print *, size(hmmEstimate, 1),size(hmmEstimate, 2), size(hmmEstimate ,3)
-    !     hmmEstimate(1,:,:) = 1. - realGenosCounts(:,:, 1) - realGenosCounts(:,:, 2)
-    !     hmmEstimate(2,:,:) = realGenosCounts(:,:, 1)
-    !     hmmEstimate(3,:,:) = realGenosCounts(:,:, 2)
-
-    !     print *, hmmEstimate(1:3, 1:5, 1:5)
-
-    ! end subroutine
-
-
     !---------------------------------------------------------------------------
     ! DESCRIPTION:
     !> @brief     Sets up pedigree
@@ -272,8 +201,8 @@ module AlphaMLPModule
         else
             ! Init pedigree with format of genotype file
             ! assume old pedigree file
-            if (.not. inputParams%isSequence) then
             pedigree = PedigreeHolder(inputParams%inputFile)
+            if (.not. inputParams%isSequence) then
                 call readGenotypes(inputParams, pedigree)
             else 
                 call readSequence(inputParams, pedigree, sequenceData)
@@ -530,82 +459,59 @@ module AlphaMLPModule
     end function
 
     subroutine runMultiLocusAlphaMLP(currentPeelingEstimates,writeOutputs)
-        use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, nPseudoFounders, inputParams
+        use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, nPseudoFounders, inputParams, nSnpsAll
         implicit none
         type(peelingEstimates), dimension(:), pointer, intent(out) :: currentPeelingEstimates
         type(individual) :: tmpInd
         integer(kind=1), dimension(:,:), allocatable :: genotypes
         integer, optional :: writeOutputs
-        integer :: i, roundNumber, nCycles, cycleIndex, nRounds
-        logical :: converged, firstRun
+        integer :: i, nCycles, cycleIndex
+        logical :: converged
         real(kind=real64), dimension(:,:,:), allocatable :: hmmEstimate
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs)
+            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
         enddo
 
 
         converged = .false.
-        firstRun = .true.
 
-        nRounds = 1
-        ! if(inputParams%useHMM) then
-        !     print *, "Using HMM"
-        !     nRounds = 2 !No HMM: nRounds = 1; HMM: nRounds = 2
-        !     call setupPseudoFounders()
-        ! endif
         nCycles = inputParams%nCycles
         print *, nCycles
-        do roundNumber = 1, nRounds
-            print *, "Round ", roundNumber
 
-            ! if(.not. firstRun .and. inputParams%useHMM) then
-            !     !Handle the HMM
-            !     call setupHMM()
-            !     allocate(hmmEstimate(3,nPseudoFounders,nSnps))
-            !     allocate(genotypes(nPseudoFounders, nSnps))
-            !     do i = 1, nPseudoFounders
-            !         tmpInd = pedigree%pedigree(i)
-            !         genotypes(i,:) = tmpInd%individualGenotype%toIntegerArray()
-            !     enddo
-            !     !Pass a subset of genotypes (only psuedoFounders) and use those genotypes to phase.
-            !     call runHMMOnFounders(genotypes, hmmEstimate)
-            !     do i = 1, nSnps
-            !         currentPeelingEstimates(i)%postHMM = .true.
-            !         currentPeelingEstimates(i)%hmmEstimate = hmmEstimate(:,:,i)
-            !     enddo
-            ! endif
-            firstRun = .false.
-
-            !Handle the Multilocus Peeler
-            cycleIndex = 1
-            converged = .false.
-            do while(cycleIndex < nCycles .and. .not. converged)
-                ! Forward Pass
-                do i = 2, nSnps
-                    call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 1)
-                    if(mod(i, 100) .eq. 0) print *, "Round ", roundNumber,  ", cycle ", cycleIndex, ", Forward ", i
-                enddo
-                ! Backward Pass
-                do i = nSnps-1, 1, -1
-                    call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 2)
-                    if(mod(i, 100) .eq. 0) print *, "Round ", roundNumber,  ", cycle ", cycleIndex, ", Backward ", i
-                enddo
-                ! Join Pass
-                do i = nSnps, 1, -1
-                    call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 3, .true.)
-                    if(mod(i, 100) .eq. 0) print *, "Round ", roundNumber,  ", cycle ", cycleIndex, ", Join ", i
-                enddo
-                if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
-                cycleIndex = cycleIndex + 1
-                ! call updateAllRecombinationRates(currentPeelingEstimates)
+        !Handle the Multilocus Peeler
+        cycleIndex = 1
+        converged = .false.
+        do while(cycleIndex < nCycles .and. .not. converged)
+            ! Forward Pass
+            print *, "cycle ", cycleIndex, ", Forward "
+            do i = 2, nSnps
+                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 1)
+                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
+            enddo
+            
+            ! Backward Pass
+            print *, "cycle ", cycleIndex, ", Backward "
+            do i = nSnps-1, 1, -1
+                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 2)
+                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
-            if (present(writeOutputs)) then
-                call writeOutputsToFile(roundNumber, currentPeelingEstimates)
-            endif
+            ! Join Pass                
+            print *, "cycle ", cycleIndex, ", Join "
+            do i = nSnps, 1, -1
+                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 3, .true.)
+                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+            enddo
+            if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
+            cycleIndex = cycleIndex + 1
+            ! call updateAllRecombinationRates(currentPeelingEstimates)
         enddo
+
+        if (present(writeOutputs)) then
+            call writeOutputsToFile(1, currentPeelingEstimates)
+        endif
 
     
     end subroutine
@@ -661,7 +567,7 @@ module AlphaMLPModule
         ! real(kind=real64), dimension(4,4) :: segregationTransmissionMatrix
         real(kind=real64) :: error
         real(kind=real64) :: p, q, pf
-        integer :: i, j, fam, father, mate, k, nblocks, blockSize
+        integer :: i, j, fam, father, mate, k, blockSize
         type(peelingEstimates), pointer :: markerEstimates
         logical :: usePhaseOverride
 
@@ -744,34 +650,27 @@ module AlphaMLPModule
                 endif
             enddo
         endif
-        nblocks = 8
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
-            blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
-            !$omp parallel do &
-            !$omp private(j, k, fam)  
-            do k = 1, nblocks
-                do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
-                    fam = tmpFamilyList(j)        
-                    call peelDown(markerEstimates, fam)
-                enddo
+            !!$omp parallel do &
+            !!$omp private(j, fam)  
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)        
+                call peelDown(markerEstimates, fam)
             enddo
-            !$omp end parallel do
+            !!$omp end parallel do
         enddo 
 
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
-            blockSize = CEILING(size(tmpFamilyList)*1D0/nblocks)
-            !$omp parallel do default(shared) &
-            !$omp private(j, k, fam)  
-            do k = 1, nblocks
-                do j= 1+blockSize*(k-1),min(k*blockSize,size(tmpFamilyList))      
-                    fam = tmpFamilyList(j)        
-                    call updateSegregation(markerEstimates, fam)
-                    call peelUp(markerEstimates, fam)
-                enddo
+           ! !$omp parallel do  &
+           ! !$omp private(j, fam)  
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)        
+                call updateSegregation(markerEstimates, fam)
+                call peelUp(markerEstimates, fam)
             enddo
-            !$omp end parallel do
+            ! !$omp end parallel do
 
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)
@@ -1336,7 +1235,7 @@ module AlphaMLPModule
         transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
 
 
-        nChanges = .01
+        nChanges = 1d0/nSnpsAll
         nObservations = 1.0
 
         if(indexNumber < nSnps) then 
@@ -1464,9 +1363,10 @@ module AlphaMLPModule
         nObservations = 1.0*2 + sum(recodedGenotypes)
 
         observedChangeRate = nChanges/nObservations
-        currentErrorEstimator => markerEstimates%genotypingErrorEstimator
-        call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
-        markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+        ! currentErrorEstimator => markerEstimates%genotypingErrorEstimator
+        ! call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
+        ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+        markerEstimates%genotypingErrorRate = min(observedChangeRate, .05)
     end subroutine
 
 
@@ -1494,9 +1394,10 @@ module AlphaMLPModule
         nObservations = 4 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
 
         observedChangeRate = nChanges/nObservations
-        currentErrorEstimator => markerEstimates%genotypingErrorEstimator
-        call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
-        markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+        ! currentErrorEstimator => markerEstimates%genotypingErrorEstimator
+        ! call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
+        ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+        markerEstimates%genotypingErrorRate = min(observedChangeRate, .01)
     end subroutine
 
 
@@ -1508,12 +1409,13 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
         integer, dimension(nSnps) :: individualGenotype
         real(kind=real64) :: threshold
+        CHARACTER(LEN=30) :: rowfmt
 
-        integer :: index, i, j
+        integer :: index, i, j, tmp
 
 
         print *, "Writting outputs"
-        write(paramaterFile(index), '(a, a, a)') "maf ", "gError ", "tError"
+        write(paramaterFile(index), '(a)') "maf ", "gError ", "tError"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
             write(paramaterFile(index), '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate
@@ -1527,12 +1429,15 @@ module AlphaMLPModule
             combinedHaplotypes(:, i, :) = markerEstimates%haplotypeEstimates(:,:)
         enddo
 
+        WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
+        print *, "row format", rowfmt
         do i = 1, nAnimals
-            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
-            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
-            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
-            write(outputFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
-            write(outputFile(index), *) " " 
+            tmp = outputFile(index)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
+            ! write(outputFile(index),'(a)') " " 
         enddo
 
         allocate(combinedGenotypes(nSnps, nAnimals))
@@ -1542,7 +1447,7 @@ module AlphaMLPModule
         enddo
 
         do i = 1, nAnimals
-            write(auxFile(index), '(a,60000f10.4)') pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+            write(auxFile(index), rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
         threshold = .9
         do i = 1, nAnimals
@@ -1553,8 +1458,9 @@ module AlphaMLPModule
                 if(combinedHaplotypes(3, j, i) > threshold) individualGenotype(j) = 1
                 if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
             enddo
+            WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
 
-            write(consensusFile(index), '(60000i2)') individualGenotype
+            write(consensusFile(index), rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
         enddo
 
 
