@@ -120,6 +120,10 @@ module AlphaMLPModule
 
 
         inputParams = AlphaMLPInput()        
+        nSnps = inputParams%endSnp-inputParams%startSnp+1
+        nSnpsAll = inputParams%nSnp
+
+
         print *, "setup Pedigree"
 
         call setupPedigree(inputParams)
@@ -142,8 +146,6 @@ module AlphaMLPModule
         open(newunit = consensusFile(1), FILE = "pointGenotypes.txt", status="replace")
         open(newunit = paramaterFile(1), FILE = "paramaterEstimates.txt", status="replace")
     
-        nSnps = inputParams%endSnp-inputParams%startSnp+1
-        nSnpsAll = inputParams%nSnp
         print *, "run AlphaMLP"
         call setupGenerations()
         call runMultiLocusAlphaMLP(currentPeelingEstimates, 1)
@@ -168,7 +170,7 @@ module AlphaMLPModule
         allocate(familiesInGeneration(nGenerations))
         do i = 1, nGenerations
             familiesInGeneration(i)%array = selectIndexesBasedOnMask(familyGeneration == i)
-            print *, i, familiesInGeneration(i)%array
+            ! print *, i, familiesInGeneration(i)%array
         enddo
         print *, nGenerations
     end subroutine
@@ -184,24 +186,26 @@ module AlphaMLPModule
     !> @date       Febuary 7, 2016
     !---------------------------------------------------------------------------
     subroutine setupPedigree(inputParams)
-        use globalGP, only: pedigree, nAnimals, founders, sequenceData
+        use globalGP, only: pedigree, nAnimals, founders, sequenceData, nSnps
         use PedigreeModule
         use IndividualModule, only: Individual
         implicit  none
         type(AlphaMLPInput),intent(in) :: inputParams        
 
         if (inputParams%pedFile /= "No Pedigree") then
-            pedigree = PedigreeHolder(inputParams%pedFile)
+            ! print *, inputParams%pedFile
+            ! print *, "test"
+            pedigree = PedigreeHolder(trim(inputParams%pedFile), nSnps)
             
             if (.not. inputParams%isSequence) then 
                 call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
             else 
-                call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals, sequenceData)
+                call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
             endif
         else
             ! Init pedigree with format of genotype file
             ! assume old pedigree file
-            pedigree = PedigreeHolder(inputParams%inputFile)
+            pedigree = PedigreeHolder(inputParams%inputFile, nSnps)
             if (.not. inputParams%isSequence) then
                 call readGenotypes(inputParams, pedigree)
             else 
@@ -272,9 +276,9 @@ module AlphaMLPModule
         individualIDs = [(i, i=1,nMatingPairs)]
         call g%initializeGraph(individualIDs, distance, individualScore)
 
-        print *, "decomposingGraph."
+        ! print *, "decomposingGraph."
 
-        print *, "decomposition order", g%decomposeGraph()
+        ! print *, "decomposition order", g%decomposeGraph()
 
 
     end subroutine
@@ -487,22 +491,22 @@ module AlphaMLPModule
             ! Forward Pass
             print *, "cycle ", cycleIndex, ", Forward "
             do i = 2, nSnps
-                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 1)
-                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
             enddo
             
             ! Backward Pass
             print *, "cycle ", cycleIndex, ", Backward "
             do i = nSnps-1, 1, -1
-                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 2)
-                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
             ! Join Pass                
             print *, "cycle ", cycleIndex, ", Join "
             do i = nSnps, 1, -1
-                call runIndex(pedigree%getAllGenotypesatPosition(i), i, currentPeelingEstimates, 3, .true.)
-                ! if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
             enddo
             if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
             cycleIndex = cycleIndex + 1

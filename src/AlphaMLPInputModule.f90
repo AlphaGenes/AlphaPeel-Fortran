@@ -179,6 +179,9 @@
                                 write(res%outputFile, "(A)") trim(second(1))
                             end if
                         
+                        case("pedigree")
+                            write(res%pedFile, "(A)") trim(second(1))
+                        
                         case("startsnp")
                             read(second(1),*) res%startsnp
 
@@ -228,6 +231,7 @@
             allocate(tmp(input%endSnp-input%startSnp+1))
             tmp = 9
             do i=1,input%nGenotypedAnimals
+                print *, i
                 read (unit,*) seqid, seqsire, seqdam, tmp(:)
 
                 tmpID = pedigree%dictionary%getValue(seqid)
