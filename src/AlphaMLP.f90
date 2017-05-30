@@ -195,7 +195,7 @@ module AlphaMLPModule
         if (inputParams%pedFile /= "No Pedigree") then
             ! print *, inputParams%pedFile
             ! print *, "test"
-            pedigree = PedigreeHolder(trim(inputParams%pedFile), nSnps)
+            pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
             
             if (.not. inputParams%isSequence) then 
                 call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
@@ -205,7 +205,7 @@ module AlphaMLPModule
         else
             ! Init pedigree with format of genotype file
             ! assume old pedigree file
-            pedigree = PedigreeHolder(inputParams%inputFile, nSnps)
+            pedigree = PedigreeHolder(inputParams%inputFile, nsnps=nSnps)
             if (.not. inputParams%isSequence) then
                 call readGenotypes(inputParams, pedigree)
             else 
