@@ -57,7 +57,7 @@ module AlphaMLPModule
     !---------------------------------------------------------------------------
     subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
 
-    use globalGP, only :pedigree, nsnps
+        use globalGP, only :pedigree, nsnps
         
         integer, intent(in) :: startSnp, endSnp
         integer :: i, j
@@ -115,14 +115,9 @@ module AlphaMLPModule
     subroutine runAlphaMLPIndependently()
         use globalGP, only: nSnps, sequenceData, inputParams
         implicit none
-        integer :: i
-        type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
-
-
         inputParams = AlphaMLPInput()        
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         nSnpsAll = inputParams%nSnp
-
 
         print *, "setup Pedigree"
 
@@ -133,33 +128,576 @@ module AlphaMLPModule
 
         call setupPhaseChildOfFounders()
 
-        ! call deteriminePeelingOrder()
-
         print *, "setup trace"
 
         call setupTraceTensor
-        !For each allele, run gene prob on that index.
-
-        open(newunit = outputFile(1), FILE = "multiLocusHaplotypes.txt", status="replace")
-        open(newunit = auxFile(1), FILE = "multiLocusGenotypes.txt", status="replace")
-        open(newunit = segregationFile(1), FILE = "segregationEstimates.txt", status="replace")
-        open(newunit = consensusFile(1), FILE = "pointGenotypes.txt", status="replace")
-        open(newunit = paramaterFile(1), FILE = "paramaterEstimates.txt", status="replace")
-    
-        print *, "run AlphaMLP"
         call setupGenerations()
-        call runMultiLocusAlphaMLP(currentPeelingEstimates, 1)
+
+        if(inputParams%runType == "single") call runIndependentSingleLocus()
+        if(inputParams%runType == "multi") call runIndependentMultiLocus()
+
+    end subroutine runAlphaMLPIndependently
+
+
+    subroutine runIndependentMultiLocus()
+        use globalGP, only: nSnps, sequenceData, inputParams
+        implicit none
+        integer :: i
+        type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
+
+        print *, "Running Multilocus Peeling"
+        open(newunit = outputFile, FILE = "multiLocusHaplotypes.txt", status="replace")
+        open(newunit = auxFile, FILE = "multiLocusGenotypes.txt", status="replace")
+        open(newunit = segregationFile, FILE = "segregationEstimates.txt", status="replace")
+        open(newunit = consensusFile, FILE = "pointGenotypes.txt", status="replace")
+        open(newunit = paramaterFile, FILE = "paramaterEstimates.txt", status="replace")
+    
+        call runMultiLocusAlphaMLP(currentPeelingEstimates)
+        
+        call writeOutputsToFile(currentPeelingEstimates)
 
         deallocate(currentPeelingEstimates)
-    end subroutine runAlphaMLPIndependently
+
+    end subroutine
+
+    subroutine runIndependentSingleLocus()
+        use globalGP, only: nSnps, sequenceData, inputParams, mapIndexes, mapDistance
+        implicit none
+        integer :: i
+        type(peelingEstimates), pointer :: markerEstimates
+        integer(kind=1), dimension(:), allocatable :: tmpGenotypes
+        real(kind=real64), dimension(:,:), allocatable:: bayesianProduct
+        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
+        real(kind=real64), dimension(:,:), allocatable:: outputDosages
+        real(kind=real64), dimension(nSnps) :: markerError, maf
+        real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
+        real(kind=real64), dimension(:,:), allocatable:: markerSegregation
+        
+        allocate(outputHaplotypes(nHaplotypes, nSnps, nAnimals))
+        allocate(outputDosages(nSnps, nAnimals))
+
+        print *, "Running Singlelocus Peeling"
+        open(newunit = outputFile, FILE = "singleLocusHaplotypes.txt", status="replace")
+        open(newunit = auxFile, FILE = "singleLocusGenotypes.txt", status="replace")
+        open(newunit = paramaterFile, FILE = "paramaterEstimates-single.txt", status="replace")
+
+        allocate(mapIndexes(2, nSnps))
+        allocate(mapDistance(nSnps))
+        
+        call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance)
+
+        do i = 1, inputParams%endSnp
+            allocate(markerEstimates)
+            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
+            !Get the estimate midway between the two markers. 
+            markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, i),:) + &
+                                        mapDistance(i)*segregationEstimates(:,mapIndexes(2, i),:) 
+
+            markerEstimates%fullSegregation = segregationEstimates(:,i,:)
+            
+            tmpGenotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i)
+            call runSingleIndex(tmpGenotypes, markerEstimates)
+
+            outputHaplotypes(:, i, :) = markerEstimates%haplotypeEstimates
+            outputDosages(i, :) = markerEstimates%genotypeEstimates
+
+            markerError(i) = markerEstimates%genotypingErrorRate
+            maf(i) = markerEstimates%maf
+
+            call markerEstimates%deallocatePeelingEstimates()
+            deallocate(markerEstimates)
+        enddo
+        call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
+
+    end subroutine
 
     ! Two subroutines below for running the HMM.
 
+    subroutine runMultiLocusAlphaMLP(currentPeelingEstimates)
+        use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, inputParams, nSnpsAll
+        implicit none
+        type(peelingEstimates), dimension(:), pointer, intent(out) :: currentPeelingEstimates
+        integer :: i, nCycles, cycleIndex
+        logical :: converged
+
+        allocate(currentPeelingEstimates(nSnps))
+        do i = 1, nSnps
+            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
+        enddo
+
+
+        converged = .false.
+
+        nCycles = inputParams%nCycles
+        print *, nCycles
+
+        !Handle the Multilocus Peeler
+        cycleIndex = 1
+        converged = .false.
+        do while(cycleIndex < nCycles .and. .not. converged)
+            ! Forward Pass
+            print *, "cycle ", cycleIndex, ", Forward "
+            do i = 2, nSnps
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
+            enddo
+            
+            ! Backward Pass
+            print *, "cycle ", cycleIndex, ", Backward "
+            do i = nSnps-1, 1, -1
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
+            enddo
+
+            ! Join Pass                
+            print *, "cycle ", cycleIndex, ", Join "
+            do i = nSnps, 1, -1
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+            enddo
+            if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
+            cycleIndex = cycleIndex + 1
+            ! call updateAllRecombinationRates(currentPeelingEstimates)
+        enddo
+    
+    end subroutine
+
+    subroutine runSingleIndex(genotypes, markerEstimates)
+        use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, inputParams, nSnpsAll
+        implicit none
+        real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
+
+        type(peelingEstimates), pointer, intent(inout) :: markerEstimates
+        integer(kind=1), dimension(:), allocatable :: genotypes
+        integer :: i, nCycles, cycleIndex
+        logical :: converged
+        real(kind=real64), dimension(:,:), allocatable :: haplotypesOut
+        real(kind=real64), dimension(:), allocatable :: previousGenotypeEstimate
+        real(kind=real64) :: error, p, q, pf
+        integer, dimension(:), allocatable :: ref, alt
+        integer :: iteration, maxIteration
+
+        call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
+        markerEstimates%currentSegregationEstimate = markerEstimates%fullSegregation
+        !Setup Penetrance
+        call markerEstimates%setPenetrance(genotypes)
+
+        !Make sure this is set from a file.
+        call buildSegregationTraceTensor(markerEstimates)
+        maxIteration = inputParams%nCycles
+        iteration = 0
+        converged = .false.
+        do while (.not. converged .and. iteration < maxIteration)
+            iteration = iteration + 1
+            !Create Anterior
+            call markerEstimates%setAnterior(markerEstimates%maf)
+
+            call performPeeling(markerEstimates, doUpdateSegregation = .false.)
+
+            
+            previousGenotypeEstimate = markerEstimates%genotypeEstimates
+            markerEstimates%genotypeEstimates = markerEstimates%getGenotypeEstimates()
+
+            markerEstimates%estimatedError = sum(abs(previousGenotypeEstimate - markerEstimates%genotypeEstimates))/size(markerEstimates%genotypeEstimates)
+
+            if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, markerEstimates)
+            if(inputParams%isSequence) call updateSequenceErrorRates(ref, alt, markerEstimates)
+            call updateMafEstimates(markerEstimates%genotypeEstimates, markerEstimates)
+            converged = markerEstimates%estimatedError < .0001
+
+        enddo
+
+
+    end subroutine
+    
+    function checkConvergence(currentPeelingEstimates) result(res)
+        type(peelingEstimates), dimension(:), pointer, intent(in) :: currentPeelingEstimates
+        real(kind=real64), dimension(nSnps) :: markerError
+        logical :: res
+        integer :: i
+        do i = 1, nSnps
+            markerError(i) = currentPeelingEstimates(i)%estimatedError
+        enddo
+        print *, "MaxMarkerError", maxval(markerError) 
+        res = maxval(markerError) < .0001
+
+    end function
+    !---------------------------------------------------------------------------
+    ! DESCRIPTION:
+    !> @brief      Runs an index.
+    !
+    !> @details     Runs an index. By setting up an initial set of haplotype estimates and then peeling up and peeling down.
+    ! Still need to add in updating MAF information, and revising the anterior estimate with new maf information. 
+    !
+    !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
+    !
+    !> @date       December 7, 2016
+    !
+    ! PARAMETERS:
+    !> 
+    !---------------------------------------------------------------------------
+    
+
+    subroutine runIndex(genotypes, indexNumber, currentPeelingEstimates, runType, updateParamsTemp)
+        !Variable Declarations
+        use globalGP, only : nHaplotypes, nAnimals, inputParams
+        use alphaStatMod, only: CorrelationReal64, cor
+        implicit none
+        integer(kind=1), dimension(:), intent(in) :: genotypes
+        type(peelingEstimates), dimension(:), pointer, intent(inout) :: currentPeelingEstimates
+        integer, intent(in) :: indexNumber, runType
+
+        logical, optional :: updateParamsTemp
+        logical :: updateParams
+
+        real(kind=real64), dimension(nHaplotypes,nAnimals):: logSum, haplotypeEstimates, anterior
+        real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
+        real(kind=real64), dimension(nAnimals) :: genotypeEstimates, weights, previousGenotypeEstimate
+        real(kind=real64), dimension(:), allocatable :: overrideEstimate
+        real(kind=real64), dimension(:,:), allocatable :: tmpVect
+        real(kind=real64), dimension(:,:), pointer :: posterior
+
+        integer, dimension(:), allocatable :: tmpFamilyList
+        integer :: i, j, fam, father, mate, k, blockSize
+        type(peelingEstimates), pointer :: markerEstimates
+        logical :: usePhaseOverride
+
+        if(present(updateParamsTemp)) then
+            updateParams = updateParamsTemp
+        else
+            updateParams = .false.
+        endif
+
+
+        markerEstimates => currentPeelingEstimates(indexNumber)
+        call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
+        
+        !Setup Penetrance
+        call markerEstimates%setPenetrance(genotypes)
+
+        !Create Anterior
+        call markerEstimates%setAnterior(markerEstimates%maf)
+
+        markerEstimates%anterior = anterior
+
+        !Create posterior
+        !Not using pointers... maybe should?
+        markerEstimates%sirePosteriorMate = markerEstimates%sirePosteriorMateAll(:,:,runType)
+        markerEstimates%damePosteriorMate = markerEstimates%damePosteriorMateAll(:,:,runType)
+        markerEstimates%posterior = markerEstimates%posteriorAll(:,:,runType)
+        posterior => markerEstimates%posterior
+        !Build segregation.
+        
+        call getSegregationEstimate(markerEstimates, currentPeelingEstimates, indexNumber, runType)
+        call buildSegregationTraceTensor(markerEstimates)
+
+
+        !Run Analysis
+
+        usePhaseOverride = .true.
+        if(usePhaseOverride) then
+            do j=1, size(phaseChildren)
+                if(phaseChildren(j) > 1) then
+                    overrideEstimate = phaseChildrenOverride(:,j) * markerEstimates%currentSegregationEstimate(:,phaseChildren(j))
+                    markerEstimates%currentSegregationEstimate(:,phaseChildren(j)) = overrideEstimate
+                endif
+            enddo
+        endif
+
+        call performPeeling(markerEstimates, doUpdateSegregation = .true.)
+        
+
+        !Now do post segregation updating.
+        !Isn't this all currentSegregationEstimate -- yes, but it's saving it to different slots.
+        if(runType == 1) markerEstimates%transmitForward = markerEstimates%currentSegregationEstimate
+        if(runType == 2) markerEstimates%transmitBackward = markerEstimates%currentSegregationEstimate
+        if(runType == 3) markerEstimates%fullSegregation = markerEstimates%currentSegregationEstimate
+
+        do i = 1, nAnimals            
+            markerEstimates%pointSegregation(:,i) = markerEstimates%pointSegregation(:,i)/sum(markerEstimates%pointSegregation(:,i))
+
+            if(runType == 1) markerEstimates%transmitForward(:,i) = markerEstimates%transmitForward(:,i)/sum(markerEstimates%transmitForward(:,i))
+            if(runType == 2) markerEstimates%transmitBackward(:,i) = markerEstimates%transmitBackward(:,i)/sum(markerEstimates%transmitBackward(:,i))
+            if(runType == 3) markerEstimates%fullSegregation(:,i) = markerEstimates%fullSegregation(:,i)/sum(markerEstimates%fullSegregation(:,i))
+        enddo
+
+        !Save values and update Params
+        if(runType == 3) then
+            logSum = markerEstimates%anterior + markerEstimates%posterior + markerEstimates%penetrance
+            do i = 1, size(logSum, 2)
+                haplotypeEstimates(:,i) = lhtp(logSum(:,i))
+            enddo
+            markerEstimates%haplotypeEstimates = haplotypeEstimates
+            previousGenotypeEstimate = markerEstimates%genotypeEstimates
+
+            genotypeEstimates=0
+            call gemv(haplotypeEstimates, haplotypesToGenotypes, genotypeEstimates, trans = "T")
+            weights = sum(haplotypeEstimates, 1)
+            genotypeEstimates = genotypeEstimates/weights
+            markerEstimates%genotypeEstimates = genotypeEstimates
+
+            markerEstimates%estimatedError = sum(abs(previousGenotypeEstimate - markerEstimates%genotypeEstimates))/size(markerEstimates%genotypeEstimates)
+        endif
+        
+        if(updateParams) then
+            call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
+            ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
+            if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, markerEstimates)
+            if(inputParams%isSequence) call updateSequenceErrorRates(sequenceData(indexNumber, 1, :), sequenceData(indexNumber, 2, :), markerEstimates)
+            call updateMafEstimates(genotypeEstimates, markerEstimates)
+        endif
+        
+        markerEstimates%sirePosteriorMateAll(:,:,runType) = markerEstimates%sirePosteriorMate 
+        markerEstimates%damePosteriorMateAll(:,:,runType) = markerEstimates%damePosteriorMate 
+        markerEstimates%posteriorAll(:,:,runType) = markerEstimates%posterior
+
+        call markerEstimates%deallocateMarkerVariables
+    end subroutine runIndex
+
+    subroutine performPeeling(markerEstimates, doUpdateSegregation) 
+        use globalGP, only : nAnimals, segregationTensor, familiesInGeneration, childrenAtGeneration, listOfParents
+        implicit none
+        type(PeelingEstimates), pointer :: markerEstimates
+        integer, dimension(:), allocatable :: tmpFamilyList
+        real(kind=real64), dimension(:,:), pointer :: posterior
+        real(kind=real64), dimension(:,:), allocatable :: oldPosteriorSire, oldPosteriorDame
+        logical :: doUpdateSegregation
+        integer :: fam, i, j, father, mate
+        
+        posterior => markerEstimates%posterior
+        oldPosteriorSire = markerEstimates%sirePosteriorMate
+        oldPosteriorDame = markerEstimates%damePosteriorMate
+
+        do i = 1, nGenerations
+            tmpFamilyList = familiesInGeneration(i)%array
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)        
+                call peelDown(markerEstimates, fam)
+            enddo
+        enddo 
+
+        do i = nGenerations, 1, -1
+            tmpFamilyList = familiesInGeneration(i)%array
+            if(doUpdateSegregation) then
+                do j = 1, size(tmpFamilyList)
+                    fam = tmpFamilyList(j)        
+                    call updateSegregation(markerEstimates, fam)
+                enddo
+                markerEstimates%currentSegregationEstimate(:,childrenAtGeneration(i)%array) = &
+                                        markerEstimates%currentSegregationEstimate(:, childrenAtGeneration(i)%array) *&
+                                        markerEstimates%pointSegregation(:, childrenAtGeneration(i)%array)
+
+                call buildNewSegregationTensors(markerEstimates, childrenAtGeneration(i)%array)
+            endif
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)        
+                call peelUp(markerEstimates, fam)
+            enddo
+
+            do j = 1, size(tmpFamilyList)
+                fam = tmpFamilyList(j)
+                father = listOfParents(1, fam)
+                mate = listOfParents(2, fam)
+                
+                posterior(:,father) = posterior(:,father) - oldPosteriorSire(:,fam) + markerEstimates%sirePosteriorMate(:, fam)
+                posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
+                
+                posterior(:,mate) = posterior(:,mate) - oldPosteriorDame(:,fam) + markerEstimates%damePosteriorMate(:, fam)
+                posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
+            enddo
+
+        enddo 
+    end subroutine
+
+
+!---------------------------------------------------------------------------
+    ! DESCRIPTION:
+    !> @brief      Perform a peeling down, updating the anterior probabilities.
+    !
+    !> @details     Perform a peeling down, updating the anterior probabilities. 
+    ! This is done by iterating over mating paris and updating the anterior probabilities of their children.
+    ! TODO: Include updating MAF information.
+    !
+    !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
+    !
+    !> @date       December 7, 2016
+    !
+    ! PARAMETERS:
+    !> 
+    !---------------------------------------------------------------------------
+    
+    
+    subroutine peelDown(markerEstimates, fam)
+        use globalGP, only: nHaplotypes, listOfParents, offspringList
+        use blas95
+        implicit none        
+        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
+        integer, intent(in) :: fam
+        real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
+        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
+        real(kind=real64), dimension(:,:,:), allocatable :: childEstimate
+        real(kind=real64), dimension(:,:,:), pointer, contiguous :: temp 
+        integer, dimension(:), allocatable :: offspring
+        integer :: father, mate, nChildren, child
+        integer j
+
+        anterior => markerEstimates%anterior
+        penetrance => markerEstimates%penetrance
+        posterior => markerEstimates%posterior
+        sirePosteriorMate => markerEstimates%sirePosteriorMate
+        damePosteriorMate => markerEstimates%damePosteriorMate
+
+        father = listOfParents(1, fam)
+        mate = listOfParents(2, fam)
+        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam)
+        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
+    
+        pjoint = 0
+        call additiveOuterProduct(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
+        
+        
+        offspring = offspringList(fam)%convertToArrayIDs()
+        nChildren = offspringList(fam)%length
+        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
+        
+        do j=1, nChildren
+            child = offspring(j)
+            temp => markerEstimates%currentSegregationTensors(:,:,:,child)
+            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child) + posterior(:, child), temp)
+            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
+        enddo
+
+        pjoint = pjoint + sum(childEstimate, dim=3)
+        !MP
+        do j=1, nChildren
+            child = offspring(j)
+            anterior(:,child) = parentTraceMultiply(pjoint-childEstimate(:,:,j), markerEstimates%currentSegregationTensors(:,:,:,child))
+            anterior(:,child) = anterior(:,child) - maxval(anterior(:,child))
+            !isPseudoFounder may not be allocated otherwise.
+        enddo
+        deallocate(offspring, childEstimate)
+
+    end subroutine
+
+
+    subroutine updateSegregation(markerEstimates, fam)
+        use globalGP, only: nHaplotypes, listOfParents, offspringList
+        use blas95
+        implicit none
+        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
+        REAL(kind=real64), dimension(:,:), pointer :: anterior, posterior, penetrance, sirePosteriorMate, damePosteriorMate
+        REAL(kind=real64), dimension(:,:), pointer :: newPointEstimate
+        integer :: father, mate, nChildren, child
+        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
+        real(kind=real64), dimension(:,:,:), allocatable :: childEstimate
+
+        real(kind=real64), dimension(:,:,:), pointer, contiguous :: temp 
+
+        integer, dimension(:), allocatable :: offspring
+        integer fam, j
+
+
+        anterior => markerEstimates%anterior
+        penetrance => markerEstimates%penetrance
+        posterior => markerEstimates%posterior
+        sirePosteriorMate => markerEstimates%sirePosteriorMate
+        damePosteriorMate => markerEstimates%damePosteriorMate
+        newPointEstimate => markerEstimates%pointSegregation
+
+        father = listOfParents(1, fam)
+        mate = listOfParents(2, fam)
+        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam)
+        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
+        pjoint = 0
+        call additiveOuterProduct(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
+
+        
+        nChildren = offspringList(fam)%length
+
+        allocate(offspring(nChildren))
+        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
+        offspring = offspringList(fam)%convertToArrayIDs()
+
+        !MP
+        do j=1, nChildren
+            child = offspring(j)
+            temp => markerEstimates%currentSegregationTensors(:,:,:,child)
+            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), temp)
+            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
+            pjoint = pjoint + childEstimate(:,:,j)
+        enddo
+        !MP
+        do j=1, nChildren
+            child = offspring(j)
+            if(.not. isPhasedChild(child)) then
+                newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
+            endif
+        enddo
+        deallocate(offspring, childEstimate)
+
+    end subroutine
+
+
+    subroutine peelUp(markerEstimates, fam)        
+        use globalGP, only: nHaplotypes, listOfParents, offspringList
+        use blas95
+        implicit none
+        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
+        real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
+        integer :: father, mate, nChildren, child
+        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
+        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint, tmp
+        real(kind=real64), dimension(nHaplotypes) :: tempEstimate
+        integer, dimension(:), allocatable :: offspring
+        integer fam, j
+
+        anterior => markerEstimates%anterior
+        penetrance => markerEstimates%penetrance
+        posterior => markerEstimates%posterior
+        sirePosteriorMate => markerEstimates%sirePosteriorMate
+        damePosteriorMate => markerEstimates%damePosteriorMate
+
+
+        father = listOfParents(1, fam)
+        mate = listOfParents(2, fam)
+        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam)
+        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
+        
+        nChildren = offspringList(fam)%length
+        allocate(offspring(nChildren))
+        offspring = offspringList(fam)%convertToArrayIDs()
+
+        pjoint = 0
+        !MP
+        do j=1, nChildren
+            !May be able to pre-multiply this stuff together.
+            child = offspring(j)
+            ! call printTrace(markerEstimates%currentSegregationTensors(:,:,:,child))
+            tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), markerEstimates%currentSegregationTensors(:,:,:,child))
+            ! tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
+        
+            pjoint = pjoint + tmp
+           
+        enddo
+        tempEstimate = jointByMateToFather(pmate, pjoint)
+        sirePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
+        
+        tempEstimate = jointByFatherToMate(pfather, pjoint)
+        damePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
+        deallocate(offspring)
+
+    end subroutine
+
 
     subroutine setupGenerations() 
-        use globalGP, only: nMatingPairs, familiesInGeneration, offspringList, nGenerations
+        use globalGP, only: nMatingPairs, familiesInGeneration, childrenAtGeneration, offspringList, nGenerations, nAnimals
         use graphModule, only : selectIndexesBasedOnMask
         integer, dimension(nMatingPairs) :: familyGeneration
+        integer, dimension(nAnimals) :: animalGeneration
         integer :: i
 
         do i = 1, nMatingPairs
@@ -170,9 +708,19 @@ module AlphaMLPModule
         allocate(familiesInGeneration(nGenerations))
         do i = 1, nGenerations
             familiesInGeneration(i)%array = selectIndexesBasedOnMask(familyGeneration == i)
-            ! print *, i, familiesInGeneration(i)%array
         enddo
-        print *, nGenerations
+
+        allocate(childrenAtGeneration(0:nGenerations))
+        do i = 1, nAnimals
+            animalGeneration(i) = pedigree%pedigree(i)%generation
+        enddo
+        do i = 0, nGenerations
+            childrenAtGeneration(i)%array = selectIndexesBasedOnMask(animalGeneration == i) 
+            ! print *, "children", i, childrenAtGeneration(i)%array
+            ! print *, childrenAtGeneration(i)%array
+
+        enddo
+
     end subroutine
 
     !---------------------------------------------------------------------------
@@ -282,33 +830,6 @@ module AlphaMLPModule
 
     end subroutine
 
-    subroutine setupPseudoFounders()
-        use globalGP, only: pedigree, pseudoFounders, nPseudoFounders
-        use PedigreeModule
-        use IndividualModule, only: Individual
-        use IndividualHelperModule
-        use IndividualLinkedListModule
-        use graphModule
-        implicit  none
-        integer :: numberOfGenerations, i
-        type(IndividualLinkedList) :: genotypedFounders
-        integer, dimension(:), allocatable :: individualIDs
-
-        numberOfGenerations = 1
-        genotypedFounders = pedigree%getGenotypedFounders(numberOfGenerations)        
-        individualIDs = genotypedFounders%convertToArrayIDs()
-        nPseudoFounders = size(individualIDs)
-        pseudoFounders = individualIDs
-
-        allocate(isPseudoFounder(nAnimals))
-        isPseudoFounder = .false.
-        do i = 1, nPseudoFounders
-            isPseudoFounder(pseudoFounders(i)) = .true.
-        enddo
-
-
-    end subroutine
-
     subroutine setupPhaseChildOfFounders()
         use globalGP, only: pedigree, founders, phaseChildren, isPhasedChild
         use PedigreeModule
@@ -368,7 +889,7 @@ module AlphaMLPModule
     !> globalGP: traceTensor(i,j,k) probability of observing haplotypes in individual i, with father j, and mother k.
     !---------------------------------------------------------------------------
     
-  subroutine setupTraceTensor
+    subroutine setupTraceTensor
         use globalGP, only: traceTensorExp, nHaplotypes
         implicit none
         integer :: segregation, allele
@@ -461,280 +982,19 @@ module AlphaMLPModule
 
     end function
 
-    subroutine runMultiLocusAlphaMLP(currentPeelingEstimates,writeOutputs)
-        use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, nPseudoFounders, inputParams, nSnpsAll
-        implicit none
-        type(peelingEstimates), dimension(:), pointer, intent(out) :: currentPeelingEstimates
-        type(individual) :: tmpInd
-        integer(kind=1), dimension(:,:), allocatable :: genotypes
-        integer, optional :: writeOutputs
-        integer :: i, nCycles, cycleIndex
-        logical :: converged
-        real(kind=real64), dimension(:,:,:), allocatable :: hmmEstimate
-
-        allocate(currentPeelingEstimates(nSnps))
-        do i = 1, nSnps
-            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
-        enddo
-
-
-        converged = .false.
-
-        nCycles = inputParams%nCycles
-        print *, nCycles
-
-        !Handle the Multilocus Peeler
-        cycleIndex = 1
-        converged = .false.
-        do while(cycleIndex < nCycles .and. .not. converged)
-            ! Forward Pass
-            print *, "cycle ", cycleIndex, ", Forward "
-            do i = 2, nSnps
-                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
-            enddo
-            
-            ! Backward Pass
-            print *, "cycle ", cycleIndex, ", Backward "
-            do i = nSnps-1, 1, -1
-                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
-            enddo
-
-            ! Join Pass                
-            print *, "cycle ", cycleIndex, ", Join "
-            do i = nSnps, 1, -1
-                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
-            enddo
-            if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
-            cycleIndex = cycleIndex + 1
-            ! call updateAllRecombinationRates(currentPeelingEstimates)
-        enddo
-
-        if (present(writeOutputs)) then
-            call writeOutputsToFile(1, currentPeelingEstimates)
-        endif
-
-    
-    end subroutine
-    
-    function checkConvergence(currentPeelingEstimates) result(res)
-        type(peelingEstimates), dimension(:), pointer, intent(in) :: currentPeelingEstimates
-        real(kind=real64), dimension(nSnps) :: markerError
-        logical :: res
-        integer :: i
-        do i = 1, nSnps
-            markerError(i) = currentPeelingEstimates(i)%estimatedError
-        enddo
-        print *, "MaxMarkerError", maxval(markerError) 
-        res = maxval(markerError) < .0001
-
-    end function
-    !---------------------------------------------------------------------------
+!---------------------------------------------------------------------------
     ! DESCRIPTION:
-    !> @brief      Runs an index.
+    !> @brief      Collapses the trace matrix over a child's haplotype probabilities
     !
-    !> @details     Runs an index. By setting up an initial set of haplotype estimates and then peeling up and peeling down.
-    ! Still need to add in updating MAF information, and revising the anterior estimate with new maf information. 
+    !> @details    Collapses the trace matrix over a child's haplotype probabilities
     !
     !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
     !
     !> @date       December 7, 2016
     !
     ! PARAMETERS:
-    !> 
+    !> @param[out] 
     !---------------------------------------------------------------------------
-    subroutine runIndex(genotypes, indexNumber, currentPeelingEstimates, runType, updateParamsTemp)
-        !Variable Declarations
-        use globalGP, only : nHaplotypes, nAnimals, inputParams
-        use alphaStatMod, only: CorrelationReal64, cor
-        implicit none
-        integer(kind=1), dimension(:), intent(in) :: genotypes
-        type(peelingEstimates), dimension(:), pointer, intent(inout) :: currentPeelingEstimates
-        integer, intent(in) :: indexNumber, runType
-
-        logical, optional :: updateParamsTemp
-        logical :: updateParams
-
-        real(kind=real64), dimension(nHaplotypes,nAnimals):: logSum, haplotypeEstimates, anterior
-        real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
-        real(kind=real64), dimension(nAnimals) :: genotypeEstimates, weights, previousGenotypeEstimate
-        real(kind=real64), dimension(:), allocatable :: overrideEstimate
-        real(kind=real64), dimension(:,:), allocatable :: tmpVect
-        real(kind=real64), dimension(:,:), pointer :: posterior
-        real(kind=real64), dimension(:,:), allocatable :: oldPosteriorSire, oldPosteriorDame
-
-        integer, dimension(:), allocatable :: ref, alt
-        integer, dimension(:), allocatable :: tmpFamilyList
-        ! real(kind=real64), dimension(4,4) :: segregationTransmissionMatrix
-        real(kind=real64) :: error
-        real(kind=real64) :: p, q, pf
-        integer :: i, j, fam, father, mate, k, blockSize
-        type(peelingEstimates), pointer :: markerEstimates
-        logical :: usePhaseOverride
-
-        if(present(updateParamsTemp)) then
-            updateParams = updateParamsTemp
-        else
-            updateParams = .false.
-        endif
-
-
-        markerEstimates => currentPeelingEstimates(indexNumber)
-        call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
-        
-        !Setup Penetrance
-        error = markerEstimates%genotypingErrorRate
-        genotypesToHaplotypes(:,0) = [ (1-error*2/3), error/6, error/6, error/3 ]
-        genotypesToHaplotypes(:,1) = [ error/3, (1-error*2/3)/2, (1-error*2/3)/2, error/3 ]
-        genotypesToHaplotypes(:,2) = [ error/3, error/6, error/6, (1-error*2/3) ]
-        genotypesToHaplotypes(:,9) = [ .25, .25, .25, .25 ]
-
-        if(.not. inputParams%isSequence) then
-            markerEstimates%penetrance = log(genotypesToHaplotypes(:, genotypes))
-        else
-            error = markerEstimates%genotypingErrorRate
-            ref = sequenceData(indexNumber, 1, :)
-            alt = sequenceData(indexNumber, 2, :)
-
-            p = log(1-error)
-            q = log(error)
-            pf = log(.5)
-
-            markerEstimates%penetrance(1, :) = p*ref + q*alt
-            markerEstimates%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
-            markerEstimates%penetrance(3, :) = pf*ref + pf*alt - log(2D0)
-            markerEstimates%penetrance(4, :) = q*ref + p*alt
-
-        endif
-        if(markerEstimates%postHMM .and. allocated(markerEstimates%hmmEstimate)) then
-            allocate(tmpVect(4, nPseudoFounders))
-            call gemm(genotypesToHaplotypes(:,0:2), markerEstimates%hmmEstimate, tmpVect)
-            markerEstimates%penetrance(:, pseudoFounders) = log(tmpVect)
-        endif
-
-        !Create Anterior
-        p = log(markerEstimates%maf)
-        q = log(1-markerEstimates%maf)
-        anterior(1,:) = 2*q
-        anterior(2,:) = p+q
-        anterior(3,:) = p+q
-        anterior(4,:) = 2*p
-
-        if(markerEstimates%postHMM) then
-            anterior(:, pseudoFounders) = 0
-        endif
-        markerEstimates%anterior = anterior
-
-        !Create posterior
-        !Not using pointers... maybe should?
-        markerEstimates%sirePosteriorMate = markerEstimates%sirePosteriorMateAll(:,:,runType)
-        markerEstimates%damePosteriorMate = markerEstimates%damePosteriorMateAll(:,:,runType)
-        markerEstimates%posterior = markerEstimates%posteriorAll(:,:,runType)
-        posterior => markerEstimates%posterior
-        oldPosteriorSire = markerEstimates%sirePosteriorMate
-        oldPosteriorDame = markerEstimates%damePosteriorMate
-
-        !Build segregation.
-        
-        call getSegregationEstimate(markerEstimates, currentPeelingEstimates, indexNumber, runType)
-        call buildSegregationTraceTensor(markerEstimates)
-
-
-        !Run Analysis
-
-        usePhaseOverride = .true.
-        if(usePhaseOverride) then
-            do j=1, size(phaseChildren)
-                if(phaseChildren(j) > 1) then
-                    overrideEstimate = phaseChildrenOverride(:,j) * markerEstimates%currentSegregationEstimate(:,phaseChildren(j))
-                    markerEstimates%currentSegregationEstimate(:,phaseChildren(j)) = overrideEstimate
-                endif
-            enddo
-        endif
-        do i = 1, nGenerations
-            tmpFamilyList = familiesInGeneration(i)%array
-            !!$omp parallel do &
-            !!$omp private(j, fam)  
-            do j = 1, size(tmpFamilyList)
-                fam = tmpFamilyList(j)        
-                call peelDown(markerEstimates, fam)
-            enddo
-            !!$omp end parallel do
-        enddo 
-
-        do i = nGenerations, 1, -1
-            tmpFamilyList = familiesInGeneration(i)%array
-           ! !$omp parallel do  &
-           ! !$omp private(j, fam)  
-            do j = 1, size(tmpFamilyList)
-                fam = tmpFamilyList(j)        
-                call updateSegregation(markerEstimates, fam)
-                call peelUp(markerEstimates, fam)
-            enddo
-            ! !$omp end parallel do
-
-            do j = 1, size(tmpFamilyList)
-                fam = tmpFamilyList(j)
-                father = listOfParents(1, fam)
-                mate = listOfParents(2, fam)
-                
-                posterior(:,father) = posterior(:,father) - oldPosteriorSire(:,fam) + markerEstimates%sirePosteriorMate(:, fam)
-                posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
-                
-                posterior(:,mate) = posterior(:,mate) - oldPosteriorDame(:,fam) + markerEstimates%damePosteriorMate(:, fam)
-                posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
-            enddo
-
-        enddo 
-
-        !Now do post segregation updating.
-        !Isn't this all currentSegregationEstimate -- yes, but it's saving it to different slots.
-        if(runType == 1) markerEstimates%transmitForward = markerEstimates%currentSegregationEstimate * markerEstimates%pointSegregation
-        if(runType == 2) markerEstimates%transmitBackward = markerEstimates%currentSegregationEstimate * markerEstimates%pointSegregation
-        if(runType == 3) markerEstimates%fullSegregation = markerEstimates%currentSegregationEstimate * markerEstimates%pointSegregation
-
-        do i = 1, nAnimals            
-            markerEstimates%pointSegregation(:,i) = markerEstimates%pointSegregation(:,i)/sum(markerEstimates%pointSegregation(:,i))
-
-            if(runType == 1) markerEstimates%transmitForward(:,i) = markerEstimates%transmitForward(:,i)/sum(markerEstimates%transmitForward(:,i))
-            if(runType == 2) markerEstimates%transmitBackward(:,i) = markerEstimates%transmitBackward(:,i)/sum(markerEstimates%transmitBackward(:,i))
-            if(runType == 3) markerEstimates%fullSegregation(:,i) = markerEstimates%fullSegregation(:,i)/sum(markerEstimates%fullSegregation(:,i))
-        enddo
-
-        !Save values and update Params
-        if(runType == 3) then
-            logSum = markerEstimates%anterior + markerEstimates%posterior + markerEstimates%penetrance
-            do i = 1, size(logSum, 2)
-                haplotypeEstimates(:,i) = lhtp(logSum(:,i))
-            enddo
-            markerEstimates%haplotypeEstimates = haplotypeEstimates
-            previousGenotypeEstimate = markerEstimates%genotypeEstimates
-
-            genotypeEstimates=0
-            call gemv(haplotypeEstimates, haplotypesToGenotypes, genotypeEstimates, trans = "T")
-            weights = sum(haplotypeEstimates, 1)
-            genotypeEstimates = genotypeEstimates/weights
-            markerEstimates%genotypeEstimates = genotypeEstimates
-
-            markerEstimates%estimatedError = sum(abs(previousGenotypeEstimate - markerEstimates%genotypeEstimates))/size(markerEstimates%genotypeEstimates)
-        endif
-        
-        if(updateParams) then
-            call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
-            ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
-            if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, haplotypeEstimates, markerEstimates)
-            if(inputParams%isSequence) call updateSequenceErrorRates(ref, alt, haplotypeEstimates, markerEstimates)
-            call updateMafEstimates(genotypeEstimates, markerEstimates)
-        endif
-        
-        markerEstimates%sirePosteriorMateAll(:,:,runType) = markerEstimates%sirePosteriorMate 
-        markerEstimates%damePosteriorMateAll(:,:,runType) = markerEstimates%damePosteriorMate 
-        markerEstimates%posteriorAll(:,:,runType) = markerEstimates%posterior
-
-        call markerEstimates%deallocateMarkerVariables
-    end subroutine runIndex
 
     subroutine buildSegregationTraceTensor(markerEstimates)
         use globalGP, only : nAnimals, segregationTensor
@@ -750,6 +1010,32 @@ module AlphaMLPModule
 
         call gemm(matSegTensor, currentSegregationEstimates, currentSegregationTensors)
 
+    end subroutine
+
+
+
+    subroutine buildNewSegregationTensors(markerEstimates, subset)
+        use globalGP, only : nAnimals, segregationTensor
+        implicit none
+        type(PeelingEstimates), pointer :: markerEstimates
+        real(kind=real64), dimension(:,:,:,:), pointer, contiguous :: subsetSegregationEstimate
+        real(kind=real64), dimension(:,:), pointer :: currentSegregationTensors, matSegTensor
+        real(kind=real64), dimension(:,:), allocatable :: currentSegregationEstimates
+        integer, dimension(:) :: subset
+        integer :: subsetSize
+        subsetSize = size(subset)
+        
+        matSegTensor(1:64, 1:4) => segregationTensor
+        ! currentSegregationEstimates = markerEstimates%currentSegregationEstimate(:, subset) !(1:4, nAnimals)
+        currentSegregationEstimates = markerEstimates%currentSegregationEstimate(:, subset) !(1:4, nAnimals)
+
+        allocate(subsetSegregationEstimate(4, 4, 4, subsetSize)) 
+        currentSegregationTensors(1:64, 1:subsetSize) => subsetSegregationEstimate
+
+        call gemm(matSegTensor, currentSegregationEstimates, currentSegregationTensors)
+
+        markerEstimates%currentSegregationTensors(:,:,:,subset) = subsetSegregationEstimate
+        deallocate(subsetSegregationEstimate)
     end subroutine
 
 
@@ -785,225 +1071,6 @@ module AlphaMLPModule
 
 
     end subroutine
-!---------------------------------------------------------------------------
-    ! DESCRIPTION:
-    !> @brief      Perform a peeling down, updating the anterior probabilities.
-    !
-    !> @details     Perform a peeling down, updating the anterior probabilities. 
-    ! This is done by iterating over mating paris and updating the anterior probabilities of their children.
-    ! TODO: Include updating MAF information.
-    !
-    !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
-    !
-    !> @date       December 7, 2016
-    !
-    ! PARAMETERS:
-    !> 
-    !---------------------------------------------------------------------------
-    
-    
-    subroutine peelDown(markerEstimates, fam)
-        use globalGP, only: nHaplotypes, listOfParents, offspringList
-        use blas95
-        implicit none        
-        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
-        integer, intent(in) :: fam
-        real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
-        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
-        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
-        real(kind=real64), dimension(:,:,:), allocatable :: childEstimate
-        real(kind=real64), dimension(:,:,:), pointer, contiguous :: temp 
-        integer, dimension(:), allocatable :: offspring
-        integer :: father, mate, nChildren, child
-        integer j
-
-        anterior => markerEstimates%anterior
-        penetrance => markerEstimates%penetrance
-        posterior => markerEstimates%posterior
-        sirePosteriorMate => markerEstimates%sirePosteriorMate
-        damePosteriorMate => markerEstimates%damePosteriorMate
-
-        father = listOfParents(1, fam)
-        mate = listOfParents(2, fam)
-        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam) !lhtp
-        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
-    
-        pjoint = 0
-        call additiveOuterProduct(pmate, pfather, pjoint)
-        call additiveOuterProductSpread(pmate, pfather, pjoint)
-        
-        
-        offspring = offspringList(fam)%convertToArrayIDs()
-        nChildren = offspringList(fam)%length
-        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
-        
-        do j=1, nChildren
-            child = offspring(j)
-            temp => markerEstimates%currentSegregationTensors(:,:,:,child)
-            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child) + posterior(:, child), temp)
-            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), temp)
-        enddo
-
-        pjoint = pjoint + sum(childEstimate, dim=3)
-        !MP
-        do j=1, nChildren
-            child = offspring(j)
-            anterior(:,child) = parentTraceMultiply(pjoint-childEstimate(:,:,j), markerEstimates%currentSegregationTensors(:,:,:,child))
-            anterior(:,child) = anterior(:,child) - maxval(anterior(:,child))
-            !isPseudoFounder may not be allocated otherwise.
-            if(markerEstimates%postHMM) then
-                if(isPseudoFounder(child)) then
-                    anterior(:, child) = 0    
-                endif 
-            endif
-        enddo
-        deallocate(offspring, childEstimate)
-
-    end subroutine
-
-
-!---------------------------------------------------------------------------
-    ! DESCRIPTION:
-    !> @brief      Performs a series of peeling up operations.
-    !
-    !> @details     Peels up the pedigree updating posterior probabilities. This is done based on mating pairs in inverse order. 
-    ! This is *only* done for mating pairs. If an individual is not in a mating pair then they have no children and so have a posterior estimate of 1.
-    !
-    !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
-    !
-    !> @date       December 7, 2016
-    !
-    ! PARAMETERS:
-    !> @param[out] genotypes integer array, read genotype file.
-    !---------------------------------------------------------------------------    
-    subroutine peelUp(markerEstimates, fam)        
-        use globalGP, only: nHaplotypes, listOfParents, offspringList
-        use blas95
-        implicit none
-        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
-        real(kind=real64), dimension(:,:), pointer :: posterior, penetrance, anterior,sirePosteriorMate, damePosteriorMate
-        integer :: father, mate, nChildren, child
-        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
-        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint, tmp
-        real(kind=real64), dimension(nHaplotypes) :: tempEstimate
-        real(kind=real64), dimension(:,:,:), pointer, contiguous :: childTrace
-        integer, dimension(:), allocatable :: offspring
-        integer fam, j
-
-        anterior => markerEstimates%anterior
-        penetrance => markerEstimates%penetrance
-        posterior => markerEstimates%posterior
-        sirePosteriorMate => markerEstimates%sirePosteriorMate
-        damePosteriorMate => markerEstimates%damePosteriorMate
-
-
-        father = listOfParents(1, fam)
-        mate = listOfParents(2, fam)
-        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam) !lhtp
-        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
-        
-        nChildren = offspringList(fam)%length
-        allocate(offspring(nChildren))
-        offspring = offspringList(fam)%convertToArrayIDs()
-
-        pjoint = 0
-        !MP
-        do j=1, nChildren
-            !May be able to pre-multiply this stuff together.
-            child = offspring(j)
-            childTrace => buildTraceTensor(markerEstimates%currentSegregationEstimate(:,child)*markerEstimates%pointSegregation(:,child))
-            tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), childTrace)
-            ! tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
-        
-            pjoint = pjoint + tmp
-           
-            deallocate(childTrace)
-        enddo
-        tempEstimate = jointByMateToFather(pmate, pjoint)
-        ! posterior(:,father) = posterior(:,father) - sirePosteriorMate(:,fam)  + tempEstimate
-        ! posterior(:,father) = posterior(:,father) - maxval(posterior(:,father))
-        sirePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
-        tempEstimate = jointByFatherToMate(pfather, pjoint)
-        ! posterior(:,mate) = posterior(:,mate) - damePosteriorMate(:,fam) + tempEstimate
-        ! posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
-        damePosteriorMate(:,fam) = tempEstimate - maxval(tempEstimate)
-        deallocate(offspring)
-
-    end subroutine
-
-    subroutine updateSegregation(markerEstimates, fam)
-        use globalGP, only: nHaplotypes, listOfParents, offspringList
-        use blas95
-        implicit none
-        type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
-        REAL(kind=real64), dimension(:,:), pointer :: anterior, posterior, penetrance, sirePosteriorMate, damePosteriorMate
-        REAL(kind=real64), dimension(:,:), pointer :: newPointEstimate
-        integer :: father, mate, nChildren, child
-        real(kind=real64), dimension(nHaplotypes) :: pfather, pmate
-        real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: pjoint
-        real(kind=real64), dimension(:,:,:), allocatable :: childEstimate
-
-        real(kind=real64), dimension(:,:,:), pointer, contiguous :: temp 
-
-        integer, dimension(:), allocatable :: offspring
-        integer fam, j
-
-
-        anterior => markerEstimates%anterior
-        penetrance => markerEstimates%penetrance
-        posterior => markerEstimates%posterior
-        sirePosteriorMate => markerEstimates%sirePosteriorMate
-        damePosteriorMate => markerEstimates%damePosteriorMate
-        newPointEstimate => markerEstimates%pointSegregation
-
-        father = listOfParents(1, fam)
-        mate = listOfParents(2, fam)
-        pfather = anterior(:, father)+penetrance(:,father)+posterior(:,father)-sirePosteriorMate(:,fam) !lhtp
-        pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
-        pjoint = 0
-        call additiveOuterProduct(pmate, pfather, pjoint)
-        call additiveOuterProductSpread(pmate, pfather, pjoint)
-
-        
-        nChildren = offspringList(fam)%length
-
-        allocate(offspring(nChildren))
-        allocate(childEstimate(nHaplotypes,nHaplotypes, nChildren))
-        offspring = offspringList(fam)%convertToArrayIDs()
-
-        !MP
-        do j=1, nChildren
-            child = offspring(j)
-            temp => markerEstimates%currentSegregationTensors(:,:,:,child)
-            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), temp)
-            ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
-            pjoint = pjoint + childEstimate(:,:,j)
-        enddo
-        !MP
-        do j=1, nChildren
-            child = offspring(j)
-            if(.not. isPhasedChild(child)) then
-                newPointEstimate(:,child) = reduceSegregationTensor(posterior(:,child)+penetrance(:,child), pjoint-childEstimate(:,:,j))
-            endif
-        enddo
-        deallocate(offspring, childEstimate)
-
-    end subroutine
-
-!---------------------------------------------------------------------------
-    ! DESCRIPTION:
-    !> @brief      Collapses the trace matrix over a child's haplotype probabilities
-    !
-    !> @details    Collapses the trace matrix over a child's haplotype probabilities
-    !
-    !> @author     Andrew Whalen, awhalen@roslin.ed.ac.uk
-    !
-    !> @date       December 7, 2016
-    !
-    ! PARAMETERS:
-    !> @param[out] 
-    !---------------------------------------------------------------------------
-
     function reduceSegregationTensorMKL(childGenotypes, parentJointGenotypes) result(collapsedEstimate)
         use globalGP, only: nHaplotypes, segregationTensorParentsFirst
         implicit none
@@ -1334,12 +1401,12 @@ module AlphaMLPModule
     ! end subroutine
 
 
-    subroutine updateGenotypeErrorRates(genotypes, haplotypes, markerEstimates)
+    subroutine updateGenotypeErrorRates(genotypes, markerEstimates)
         use globalGP, only: nAnimals
         use fixedPointModule
         implicit none
         integer(kind=1), dimension(:), intent(in) :: genotypes
-        real(kind=real64), dimension(:,:), intent(in) :: haplotypes        
+        real(kind=real64), dimension(:,:), allocatable :: haplotypes        
         type(peelingEstimates), intent(inout) :: markerEstimates
 
         real(kind=real64), dimension(3,nAnimals) :: zi, reducedHaplotypes, recodedGenotypes
@@ -1347,7 +1414,7 @@ module AlphaMLPModule
         real(kind=real64) :: nChanges, nObservations, observedChangeRate
         type(fixedPointEstimator), pointer :: currentErrorEstimator
 
-
+        haplotypes = markerEstimates%getHaplotypeEstimates()
         genotypesToHaplotypes(:,0) = [1, 0, 0]
         genotypesToHaplotypes(:,1) = [0, 1, 0]
         genotypesToHaplotypes(:,2) = [0, 0, 1]
@@ -1364,7 +1431,7 @@ module AlphaMLPModule
 
         nChanges = 0.05*2 + sum(zi)
         nObservations = 1.0*2 + sum(recodedGenotypes)
-
+        ! print *, nChanges, nObservations
         observedChangeRate = nChanges/nObservations
         ! currentErrorEstimator => markerEstimates%genotypingErrorEstimator
         ! call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
@@ -1373,20 +1440,20 @@ module AlphaMLPModule
     end subroutine
 
 
-    subroutine updateSequenceErrorRates(ref, alt, haplotypes, markerEstimates)
+    subroutine updateSequenceErrorRates(ref, alt, markerEstimates)
         use globalGP, only: nAnimals
         use fixedPointModule
         implicit none
         integer, dimension(:), intent(in) :: ref, alt
         integer, dimension(:), allocatable :: totReads
-        real(kind=real64), dimension(:,:), intent(in) :: haplotypes        
+        real(kind=real64), dimension(:,:), allocatable :: haplotypes        
         type(peelingEstimates), intent(inout) :: markerEstimates
 
         real(kind=real64), dimension(3,nAnimals) :: reducedHaplotypes
         real(kind=real64) :: nChanges, nObservations, observedChangeRate
         type(fixedPointEstimator), pointer :: currentErrorEstimator
 
-
+        haplotypes = markerEstimates%haplotypeEstimates
         totReads = ref + alt
 
         reducedHaplotypes(1,:) = haplotypes(1,:) 
@@ -1404,8 +1471,9 @@ module AlphaMLPModule
     end subroutine
 
 
-    subroutine writeOutputsToFile(index, currentPeelingEstimates)
+    subroutine writeOutputsToFile(currentPeelingEstimates)
         use globalGP
+        implicit none
         type(peelingEstimates), pointer :: markerEstimates
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
         real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
@@ -1414,14 +1482,14 @@ module AlphaMLPModule
         real(kind=real64) :: threshold
         CHARACTER(LEN=30) :: rowfmt
 
-        integer :: index, i, j, tmp
+        integer :: i, j, tmp
 
 
         print *, "Writting outputs"
-        write(paramaterFile(index), '(a)') "maf ", "gError ", "tError"
+        ! write(paramaterFile, '(a)') "maf ", "gError ", "tError"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
-            write(paramaterFile(index), '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate
+            write(paramaterFile, '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate
         enddo
 
         allocate(combinedHaplotypes(4, nSnps, nAnimals))
@@ -1435,7 +1503,24 @@ module AlphaMLPModule
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
         print *, "row format", rowfmt
         do i = 1, nAnimals
-            tmp = outputFile(index)
+            tmp = outputFile
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
+            ! write(outputFile(index),'(a)') " " 
+        enddo
+
+        !Output Segregation
+        do i = 1, nSnps
+            markerEstimates => currentPeelingEstimates(i)
+            combinedHaplotypes(:, i, :) = markerEstimates%fullSegregation(:,:)
+        enddo
+
+        WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
+        print *, "row format", rowfmt
+        do i = 1, nAnimals
+            tmp = segregationFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
@@ -1450,7 +1535,7 @@ module AlphaMLPModule
         enddo
 
         do i = 1, nAnimals
-            write(auxFile(index), rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+            write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
         threshold = .9
         do i = 1, nAnimals
@@ -1463,21 +1548,48 @@ module AlphaMLPModule
             enddo
             WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
 
-            write(consensusFile(index), rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
+            write(consensusFile, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
         enddo
 
 
       
     end subroutine
 
-    function lhtp(logVector) result(prob)
-        use globalGP, only: nHaplotypes
+    subroutine writeOutputsToFileSingleLocus(combinedHaplotypes, combinedGenotypes, markerError, maf)
+        use globalGP
         implicit none
-        real(kind=real64), dimension(nHaplotypes), intent(in) :: logVector
-        real(kind=real64), dimension(nHaplotypes) :: prob
-        prob = exp(logVector - maxval(logVector))
-        prob = prob/sum(prob)
-    end function
+        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
+        real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
+        real(kind=real64), dimension(:), intent(in) :: markerError, maf
+        real(kind=real64) :: threshold
+        CHARACTER(LEN=30) :: rowfmt
+
+        integer :: i, j, tmp
+
+
+        print *, "Writting outputs"
+
+        ! write(paramaterFile, '(a)') "maf ", "gError "
+        do i = 1, nSnps
+            write(paramaterFile, '(3f12.7)') maf(i), markerError(i)
+        enddo
+
+        WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
+        print *, "row format", rowfmt
+        do i = 1, nAnimals
+            tmp = outputFile
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
+            ! write(outputFile(index),'(a)') " " 
+        enddo
+
+        do i = 1, nAnimals
+            write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+        enddo
+      
+    end subroutine
 
     subroutine additiveOuterProduct(pfather, pmate, pjoint)
         use globalGP, only: nHaplotypes
@@ -1533,7 +1645,7 @@ module AlphaMLPModule
 
     subroutine ppa4(a)
         implicit none
-        real(kind=real64), dimension(:, :,:,:), allocatable, intent(in) :: a
+        real(kind=real64), dimension(:, :,:,:), intent(in) :: a
         integer i,j,k
         do k = 1, size(a, 4)
             do j = 1, size(a, 3)

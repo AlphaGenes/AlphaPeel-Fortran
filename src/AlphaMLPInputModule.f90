@@ -43,6 +43,10 @@
         character(len=FILELENGTH) :: sequenceFile
         character(len=FILELENGTH) :: pedFile
 
+        character(len=FILELENGTH) :: runType
+        character(len=FILELENGTH) :: mapFile
+        character(len=FILELENGTH) :: segFile
+
     end type AlphaMLPInput
 
     integer(KIND=1), allocatable, dimension(:,:) :: defaultInputGenotypes
@@ -137,12 +141,16 @@
             res%inputFile = "AlphaMLPGenotypes.txt"
             res%outputFile = "AlphaMLPs.txt"
             res%pedFile = "No Pedigree"
+            res%runType = "multi"
 
             res%isSequence = .false.
             res%sequenceFile = ""
 
             res%nCycles = 10
             res%useHMM = .false.
+
+            res%mapFile = "No map"
+            res%segFile = "segregationEstimates.txt"
 
             open(newunit=unit, file=SpecFile, action="read", status="old")
             IOStatus = 0
@@ -188,6 +196,9 @@
                         case("endsnp")
                             read(second(1),*) res%endSnp
 
+                        case("runtype")
+                            write(res%runType, "(A)") trim(second(1))
+
                         case("usesequence")
                             read(second(1),*) tmp
                             if(tmp == "yes") res%isSequence = .true.
@@ -199,7 +210,11 @@
                             if(tmp == "yes") res%useHMM = .true.
                         case("ncycles")
                             read(second(1),*) res%nCycles
-                        
+                        case("mapFile")
+                            write(res%mapFile, "(A)") trim(second(1))
+                        case("segregation")
+                            write(res%segFile, "(A)") trim(second(1))
+
 
 
                         case default
@@ -231,7 +246,7 @@
             allocate(tmp(input%endSnp-input%startSnp+1))
             tmp = 9
             do i=1,input%nGenotypedAnimals
-                print *, i
+                ! print *, i
                 read (unit,*) seqid, seqsire, seqdam, tmp(:)
 
                 tmpID = pedigree%dictionary%getValue(seqid)
@@ -244,6 +259,51 @@
             close(unit)
         
         end subroutine readGenotypes
+
+        subroutine readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance)
+            use PedigreeModule
+            use ConstantModule, only : IDLENGTH
+            real(kind=real64), dimension(:,:,:), allocatable, intent(inout) :: segregationEstimates    
+            integer, dimension(:, :), allocatable :: mapIndexes
+            real(kind=real64), dimension(:), allocatable :: mapDistance
+
+            integer :: i, unit, numLDSnps
+            real(kind=real64) :: normalizationConstant
+            type(AlphaMLPInput) :: inputParams
+            character(len=IDLENGTH) :: tmp 
+
+
+            if(inputParams%mapFile == "No map") then
+                do i = 1, size(mapIndexes, 2)
+                    mapIndexes(:, i) = i
+                enddo
+                mapDistance = 0
+            else
+                open(newunit=unit,FILE=trim(inputParams%mapFile),STATUS="old") !INPUT FILE
+                do i = 1, size(mapIndexes, 2)
+                    read(unit, *) mapIndexes(:,i), mapDistance(i)
+                enddo
+            endif 
+            print *, size(mapIndexes)
+            print *, size(mapDistance)
+            numLDSnps = maxval(mapIndexes)
+
+            allocate(segregationEstimates(4, numLDSnps, inputParams%nGenotypedAnimals))
+
+            open(newunit=unit,FILE=trim(inputParams%segFile),STATUS="old") !INPUT FILE
+            do i=1,size(segregationEstimates, 3)
+                read (unit,*) tmp, segregationEstimates(1, :, i)
+                read (unit,*) tmp, segregationEstimates(2, :, i)
+                read (unit,*) tmp, segregationEstimates(3, :, i)
+                read (unit,*) tmp, segregationEstimates(4, :, i)
+            end do
+
+            close(unit)
+            normalizationConstant = .000001
+            segregationEstimates = (1-normalizationConstant) * segregationEstimates + normalizationConstant
+            print *, "read success"
+
+        end subroutine
 
         subroutine readSequence(input, pedigree, sequenceData)
             use PedigreeModule
