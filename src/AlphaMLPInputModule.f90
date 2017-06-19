@@ -210,7 +210,7 @@
                             if(tmp == "yes") res%useHMM = .true.
                         case("ncycles")
                             read(second(1),*) res%nCycles
-                        case("mapFile")
+                        case("mapfile")
                             write(res%mapFile, "(A)") trim(second(1))
                         case("segregation")
                             write(res%segFile, "(A)") trim(second(1))

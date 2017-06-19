@@ -187,6 +187,7 @@ module AlphaMLPModule
         call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance)
 
         do i = 1, inputParams%endSnp
+            if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
             call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
             !Get the estimate midway between the two markers. 

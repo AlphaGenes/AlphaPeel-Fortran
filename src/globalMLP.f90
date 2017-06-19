@@ -249,6 +249,8 @@ module globalGP
                 q = log(error)
                 pf = log(.5)
 
+                print *, size(this%penetrance, 1), size(this%penetrance, 2)
+
                 this%penetrance(1, :) = p*ref + q*alt
                 this%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
                 this%penetrance(3, :) = pf*ref + pf*alt - log(2D0)
