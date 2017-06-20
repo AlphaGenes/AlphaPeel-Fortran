@@ -133,6 +133,11 @@ module AlphaMLPModule
         call setupTraceTensor
         call setupGenerations()
 
+
+        call printTrace(buildTraceTensor([.25D0,.25D0,.25D0,.25D0]))
+        call printTrace(buildTraceTensor([1D0,0D0,0D0,.0D0]))
+
+
         if(inputParams%runType == "single") call runIndependentSingleLocus()
         if(inputParams%runType == "multi") call runIndependentMultiLocus()
 
