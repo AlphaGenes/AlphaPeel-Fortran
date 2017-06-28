@@ -51,6 +51,7 @@ module globalGP
     integer :: nGenerations
 
     type peelingEstimates
+        integer :: index
         real(kind=real64), dimension(:,:,:), allocatable :: posteriorAll, sirePosteriorMateAll, damePosteriorMateAll
 
         real(kind=real64), dimension(:,:), allocatable :: anterior, penetrance, posterior
@@ -77,15 +78,20 @@ module globalGP
         procedure :: getGenotypeEstimates
         procedure :: setHaplotypeEstimates
         procedure :: setAnterior
-        procedure :: setPenetrance
+        procedure :: setPenetranceFromSequence
+        procedure :: setPenetranceFromGenotypes
+        procedure :: updateSequenceErrorRates
+        procedure :: updateGenotypeErrorRates
     end type peelingEstimates
 
     contains 
-        subroutine initializePeelingEstimates(this, nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
+        subroutine initializePeelingEstimates(this, nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, index)
             implicit none
             class(peelingEstimates) :: this
-            integer :: nHaplotypes, nAnimals, nMatingPairs, nSnpsAll
+            integer :: nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, index
+    
 
+            this%index = index
             allocate(this%posteriorAll(nHaplotypes, nAnimals,3))
             allocate(this%sirePosteriorMateAll(nHaplotypes, nMatingPairs,3))
             allocate(this%damePosteriorMateAll(nHaplotypes, nMatingPairs,3))
@@ -223,41 +229,51 @@ module globalGP
             prob = prob/sum(prob)
         end function
 
-        subroutine setPenetrance(this, genotypes)
+        subroutine setPenetranceFromGenotypes(this)
             implicit none
             class(peelingEstimates) :: this
-            integer(kind=1), dimension(:), intent(in) :: genotypes
+            integer(kind=1), dimension(:), allocatable :: genotypes
             real(kind=real64) :: error
             real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
             integer, dimension(:), allocatable :: ref, alt
             real(kind=real64) :: p, q, pf !pf is log of .5
-            integer :: indexNumber 
+
+            genotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(this%index)
             error = this%genotypingErrorRate
             genotypesToHaplotypes(:,0) = [ (1-error*2/3), error/6, error/6, error/3 ]
             genotypesToHaplotypes(:,1) = [ error/3, (1-error*2/3)/2, (1-error*2/3)/2, error/3 ]
             genotypesToHaplotypes(:,2) = [ error/3, error/6, error/6, (1-error*2/3) ]
             genotypesToHaplotypes(:,9) = [ .25, .25, .25, .25 ]
+        
+            this%penetrance = log(genotypesToHaplotypes(:, genotypes))
 
-            if(.not. inputParams%isSequence) then
-                this%penetrance = log(genotypesToHaplotypes(:, genotypes))
-            else
-                error = this%genotypingErrorRate
-                ref = sequenceData(indexNumber, 1, :)
-                alt = sequenceData(indexNumber, 2, :)
+        end subroutine
 
-                p = log(1-error)
-                q = log(error)
-                pf = log(.5)
+        subroutine setPenetranceFromSequence(this)
+            implicit none
+            class(peelingEstimates) :: this
+            real(kind=real64) :: error
+            real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
+            integer, dimension(:,:), allocatable :: seq
+            integer, dimension(:), allocatable :: ref, alt
+            real(kind=real64) :: p, q, pf !pf is log of .5
 
-                print *, size(this%penetrance, 1), size(this%penetrance, 2)
+            error = this%genotypingErrorRate
+            error = this%genotypingErrorRate
+            seq = pedigree%getSequenceAsArrayWithMissing(this%index)
+            ref = seq(1,:)
+            alt = seq(2,:)
 
-                this%penetrance(1, :) = p*ref + q*alt
-                this%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
-                this%penetrance(3, :) = pf*ref + pf*alt - log(2D0)
-                this%penetrance(4, :) = q*ref + p*alt
+            p = log(1-error)
+            q = log(error)
+            pf = log(.5)
 
-            endif
-            
+
+            this%penetrance(1, :) = p*ref + q*alt
+            this%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
+            this%penetrance(3, :) = pf*ref + pf*alt - log(2D0)
+            this%penetrance(4, :) = q*ref + p*alt
+
             !Maybe use this as a second error measure for sequence.
 
             ! if(markerEstimates%postHMM .and. allocated(markerEstimates%hmmEstimate)) then
@@ -268,6 +284,81 @@ module globalGP
 
 
         end subroutine
+
+        subroutine updateGenotypeErrorRates(this)
+            use fixedPointModule
+            implicit none
+            integer(kind=1), dimension(:), allocatable :: genotypes
+            real(kind=real64), dimension(:,:), allocatable :: haplotypes        
+            class(peelingEstimates) :: this
+
+            real(kind=real64), dimension(3,nAnimals) :: zi, reducedHaplotypes, recodedGenotypes
+            real(kind=real64), dimension(3, 0:9) :: genotypesToHaplotypes
+            real(kind=real64) :: nChanges, nObservations, observedChangeRate
+            type(fixedPointEstimator), pointer :: currentErrorEstimator
+
+            genotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(this%index)
+
+            haplotypes = this%getHaplotypeEstimates()
+            genotypesToHaplotypes(:,0) = [1, 0, 0]
+            genotypesToHaplotypes(:,1) = [0, 1, 0]
+            genotypesToHaplotypes(:,2) = [0, 0, 1]
+            genotypesToHaplotypes(:,9) = [0, 0, 0]
+
+            recodedGenotypes = genotypesToHaplotypes(:, genotypes)
+
+            reducedHaplotypes(1,:) = haplotypes(1,:) 
+            reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
+            reducedHaplotypes(3,:) = haplotypes(4,:) 
+
+
+            zi = recodedGenotypes * (1-reducedHaplotypes)
+
+            nChanges = 0.05*2 + sum(zi)
+            nObservations = 1.0*2 + sum(recodedGenotypes)
+            ! print *, nChanges, nObservations
+            observedChangeRate = nChanges/nObservations
+            ! currentErrorEstimator => this%genotypingErrorEstimator
+            ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
+            ! this%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+            this%genotypingErrorRate = min(observedChangeRate, .05)
+        end subroutine
+
+
+        subroutine updateSequenceErrorRates(this)
+            use fixedPointModule
+            implicit none
+            integer, dimension(:,:), allocatable :: seq
+            integer, dimension(:), allocatable :: ref, alt
+            integer, dimension(:), allocatable :: totReads
+            real(kind=real64), dimension(:,:), allocatable :: haplotypes        
+            class(peelingEstimates) :: this
+
+            real(kind=real64), dimension(3,nAnimals) :: reducedHaplotypes
+            real(kind=real64) :: nChanges, nObservations, observedChangeRate
+            type(fixedPointEstimator), pointer :: currentErrorEstimator
+          
+            seq = pedigree%getSequenceAsArrayWithMissing(this%index)
+            ref = seq(1,:)
+            alt = seq(2,:)
+
+            haplotypes = this%haplotypeEstimates
+            totReads = ref + alt
+
+            reducedHaplotypes(1,:) = haplotypes(1,:) 
+            reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
+            reducedHaplotypes(3,:) = haplotypes(4,:) 
+
+            nChanges = 2 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
+            nObservations = 4 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
+
+            observedChangeRate = nChanges/nObservations
+            ! currentErrorEstimator => this%genotypingErrorEstimator
+            ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
+            ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+            this%genotypingErrorRate = min(observedChangeRate, .01)
+        end subroutine
+
 
         subroutine setAnterior(this, maf)
             implicit none

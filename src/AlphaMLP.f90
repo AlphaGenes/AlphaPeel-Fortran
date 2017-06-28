@@ -134,8 +134,8 @@ module AlphaMLPModule
         call setupGenerations()
 
 
-        call printTrace(buildTraceTensor([.25D0,.25D0,.25D0,.25D0]))
-        call printTrace(buildTraceTensor([1D0,0D0,0D0,.0D0]))
+        ! call printTrace(buildTraceTensor([.25D0,.25D0,.25D0,.25D0]))
+        ! call printTrace(buildTraceTensor([1D0,0D0,0D0,.0D0]))
 
 
         if(inputParams%runType == "single") call runIndependentSingleLocus()
@@ -166,7 +166,7 @@ module AlphaMLPModule
     end subroutine
 
     subroutine runIndependentSingleLocus()
-        use globalGP, only: nSnps, sequenceData, inputParams, mapIndexes, mapDistance
+        use globalGP, only: nSnps, inputParams, mapIndexes, mapDistance
         implicit none
         integer :: i
         type(peelingEstimates), pointer :: markerEstimates
@@ -186,23 +186,25 @@ module AlphaMLPModule
         open(newunit = auxFile, FILE = "singleLocusGenotypes.txt", status="replace")
         open(newunit = paramaterFile, FILE = "paramaterEstimates-single.txt", status="replace")
 
-        allocate(mapIndexes(2, nSnps))
-        allocate(mapDistance(nSnps))
+        allocate(mapIndexes(2, nSnpsAll))
+        allocate(mapDistance(nSnpsAll))
         
-        call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance)
-
+        call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
+       !!$omp parallel do &
+       !!$omp default(shared) &
+       !!$omp private(i, markerSegregation, markerEstimates)
         do i = 1, inputParams%endSnp
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
-            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
+            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i)
             !Get the estimate midway between the two markers. 
             markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, i),:) + &
                                         mapDistance(i)*segregationEstimates(:,mapIndexes(2, i),:) 
 
-            markerEstimates%fullSegregation = segregationEstimates(:,i,:)
+            ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
+            markerEstimates%fullSegregation = markerSegregation
             
-            tmpGenotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i)
-            call runSingleIndex(tmpGenotypes, markerEstimates)
+            call runSingleIndex(markerEstimates)
 
             outputHaplotypes(:, i, :) = markerEstimates%haplotypeEstimates
             outputDosages(i, :) = markerEstimates%genotypeEstimates
@@ -213,6 +215,7 @@ module AlphaMLPModule
             call markerEstimates%deallocatePeelingEstimates()
             deallocate(markerEstimates)
         enddo
+       !!$omp end parallel do
         call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
 
     end subroutine
@@ -228,7 +231,7 @@ module AlphaMLPModule
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll)
+            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i)
         enddo
 
 
@@ -268,13 +271,12 @@ module AlphaMLPModule
     
     end subroutine
 
-    subroutine runSingleIndex(genotypes, markerEstimates)
+    subroutine runSingleIndex(markerEstimates)
         use globalGP, only: nAnimals, nHaplotypes, nMatingPairs, nSnps, inputParams, nSnpsAll
         implicit none
         real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
 
         type(peelingEstimates), pointer, intent(inout) :: markerEstimates
-        integer(kind=1), dimension(:), allocatable :: genotypes
         integer :: i, nCycles, cycleIndex
         logical :: converged
         real(kind=real64), dimension(:,:), allocatable :: haplotypesOut
@@ -286,7 +288,13 @@ module AlphaMLPModule
         call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
         markerEstimates%currentSegregationEstimate = markerEstimates%fullSegregation
         !Setup Penetrance
-        call markerEstimates%setPenetrance(genotypes)
+        if (.not. inputParams%isSequence) then 
+            call markerEstimates%setPenetranceFromGenotypes()
+        else 
+            call markerEstimates%setPenetranceFromSequence()
+        endif
+
+
 
         !Make sure this is set from a file.
         call buildSegregationTraceTensor(markerEstimates)
@@ -306,8 +314,8 @@ module AlphaMLPModule
 
             markerEstimates%estimatedError = sum(abs(previousGenotypeEstimate - markerEstimates%genotypeEstimates))/size(markerEstimates%genotypeEstimates)
 
-            if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, markerEstimates)
-            if(inputParams%isSequence) call updateSequenceErrorRates(ref, alt, markerEstimates)
+            if(.not. inputParams%isSequence) call markerEstimates%updateGenotypeErrorRates()
+            if(inputParams%isSequence) call markerEstimates%updateSequenceErrorRates()
             call updateMafEstimates(markerEstimates%genotypeEstimates, markerEstimates)
             converged = markerEstimates%estimatedError < .0001
 
@@ -379,7 +387,11 @@ module AlphaMLPModule
         call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
         
         !Setup Penetrance
-        call markerEstimates%setPenetrance(genotypes)
+        if (.not. inputParams%isSequence) then 
+            call markerEstimates%setPenetranceFromGenotypes()
+        else 
+            call markerEstimates%setPenetranceFromSequence()
+        endif
 
         !Create Anterior
         call markerEstimates%setAnterior(markerEstimates%maf)
@@ -448,8 +460,8 @@ module AlphaMLPModule
         if(updateParams) then
             call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
             ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
-            if(.not. inputParams%isSequence) call updateGenotypeErrorRates(genotypes, markerEstimates)
-            if(inputParams%isSequence) call updateSequenceErrorRates(sequenceData(indexNumber, 1, :), sequenceData(indexNumber, 2, :), markerEstimates)
+            if(.not. inputParams%isSequence) call markerEstimates%updateGenotypeErrorRates()
+            if(inputParams%isSequence) call markerEstimates%updateSequenceErrorRates()
             call updateMafEstimates(genotypeEstimates, markerEstimates)
         endif
         
@@ -722,9 +734,6 @@ module AlphaMLPModule
         enddo
         do i = 0, nGenerations
             childrenAtGeneration(i)%array = selectIndexesBasedOnMask(animalGeneration == i) 
-            ! print *, "children", i, childrenAtGeneration(i)%array
-            ! print *, childrenAtGeneration(i)%array
-
         enddo
 
     end subroutine
@@ -746,25 +755,26 @@ module AlphaMLPModule
         implicit  none
         type(AlphaMLPInput),intent(in) :: inputParams        
 
+        !Depreciating old genotype format.
         if (inputParams%pedFile /= "No Pedigree") then
-            ! print *, inputParams%pedFile
+            print *, inputParams%pedFile
             pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
-            ! call pedigree%printPedigree
             if (.not. inputParams%isSequence) then 
                 call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
             else 
                 call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
             endif
         else
-            ! Init pedigree with format of genotype file
-            ! assume old pedigree file
-            pedigree = PedigreeHolder(inputParams%inputFile, nsnps=nSnps)
-            if (.not. inputParams%isSequence) then
-                call readGenotypes(inputParams, pedigree)
-            else 
-                call readSequence(inputParams, pedigree, sequenceData)
-            endif
+            ! ! Init pedigree with format of genotype file
+            ! ! assume old pedigree file
+            ! pedigree = PedigreeHolder(inputParams%inputFile, nsnps=nSnps)
+            ! if (.not. inputParams%isSequence) then
+            !     call readGenotypes(inputParams, pedigree)
+            ! else 
+            !     call readSequence(inputParams, pedigree, sequenceData)
+            ! endif
         endif
+        print *, "Pedigree and genotypes loaded"
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
     end subroutine
@@ -828,10 +838,6 @@ module AlphaMLPModule
         individualScore = 1
         individualIDs = [(i, i=1,nMatingPairs)]
         call g%initializeGraph(individualIDs, distance, individualScore)
-
-        ! print *, "decomposingGraph."
-
-        ! print *, "decomposition order", g%decomposeGraph()
 
 
     end subroutine
@@ -1151,9 +1157,7 @@ module AlphaMLPModule
         !we need to rebuild the trace tensor
         ! traceTensorExp = buildTraceTensor(childSegregation)
         do i=1,nHaplotypes
-            ! print *, i
            do j = 1, nHaplotypes
-                ! print *, i, " ", j
                 collapsedEstimate(i, j) = log(sum(vectExp * traceTensorExp(:, i, j))) + max
            enddo
         enddo
@@ -1407,76 +1411,6 @@ module AlphaMLPModule
     ! end subroutine
 
 
-    subroutine updateGenotypeErrorRates(genotypes, markerEstimates)
-        use globalGP, only: nAnimals
-        use fixedPointModule
-        implicit none
-        integer(kind=1), dimension(:), intent(in) :: genotypes
-        real(kind=real64), dimension(:,:), allocatable :: haplotypes        
-        type(peelingEstimates), intent(inout) :: markerEstimates
-
-        real(kind=real64), dimension(3,nAnimals) :: zi, reducedHaplotypes, recodedGenotypes
-        real(kind=real64), dimension(3, 0:9) :: genotypesToHaplotypes
-        real(kind=real64) :: nChanges, nObservations, observedChangeRate
-        type(fixedPointEstimator), pointer :: currentErrorEstimator
-
-        haplotypes = markerEstimates%getHaplotypeEstimates()
-        genotypesToHaplotypes(:,0) = [1, 0, 0]
-        genotypesToHaplotypes(:,1) = [0, 1, 0]
-        genotypesToHaplotypes(:,2) = [0, 0, 1]
-        genotypesToHaplotypes(:,9) = [0, 0, 0]
-
-        recodedGenotypes = genotypesToHaplotypes(:, genotypes)
-
-        reducedHaplotypes(1,:) = haplotypes(1,:) 
-        reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
-        reducedHaplotypes(3,:) = haplotypes(4,:) 
-
-
-        zi = recodedGenotypes * (1-reducedHaplotypes)
-
-        nChanges = 0.05*2 + sum(zi)
-        nObservations = 1.0*2 + sum(recodedGenotypes)
-        ! print *, nChanges, nObservations
-        observedChangeRate = nChanges/nObservations
-        ! currentErrorEstimator => markerEstimates%genotypingErrorEstimator
-        ! call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
-        ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
-        markerEstimates%genotypingErrorRate = min(observedChangeRate, .05)
-    end subroutine
-
-
-    subroutine updateSequenceErrorRates(ref, alt, markerEstimates)
-        use globalGP, only: nAnimals
-        use fixedPointModule
-        implicit none
-        integer, dimension(:), intent(in) :: ref, alt
-        integer, dimension(:), allocatable :: totReads
-        real(kind=real64), dimension(:,:), allocatable :: haplotypes        
-        type(peelingEstimates), intent(inout) :: markerEstimates
-
-        real(kind=real64), dimension(3,nAnimals) :: reducedHaplotypes
-        real(kind=real64) :: nChanges, nObservations, observedChangeRate
-        type(fixedPointEstimator), pointer :: currentErrorEstimator
-
-        haplotypes = markerEstimates%haplotypeEstimates
-        totReads = ref + alt
-
-        reducedHaplotypes(1,:) = haplotypes(1,:) 
-        reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
-        reducedHaplotypes(3,:) = haplotypes(4,:) 
-
-        nChanges = 2 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
-        nObservations = 4 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
-
-        observedChangeRate = nChanges/nObservations
-        ! currentErrorEstimator => markerEstimates%genotypingErrorEstimator
-        ! call currentErrorEstimator%addObservation(markerEstimates%genotypingErrorRate, observedChangeRate)
-        ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
-        markerEstimates%genotypingErrorRate = min(observedChangeRate, .01)
-    end subroutine
-
-
     subroutine writeOutputsToFile(currentPeelingEstimates)
         use globalGP
         implicit none
@@ -1543,13 +1477,12 @@ module AlphaMLPModule
         do i = 1, nAnimals
             write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
-        threshold = .9
+        threshold = .99999
         do i = 1, nAnimals
             individualGenotype = 9
             do j = 1, nSnps
                 if(combinedHaplotypes(1, j, i) > threshold) individualGenotype(j) = 0
-                if(combinedHaplotypes(2, j, i) > threshold) individualGenotype(j) = 1
-                if(combinedHaplotypes(3, j, i) > threshold) individualGenotype(j) = 1
+                if(combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)> threshold) individualGenotype(j) = 1
                 if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
             enddo
             WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'

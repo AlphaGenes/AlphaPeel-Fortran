@@ -230,47 +230,49 @@
 
 
 
-        subroutine readGenotypes(input, pedigree)
-            use PedigreeModule
-            use ConstantModule, only : IDLENGTH,DICT_NULL
+        ! subroutine readGenotypes(input, pedigree)
+        !     use PedigreeModule
+        !     use ConstantModule, only : IDLENGTH,DICT_NULL
 
-            type(AlphaMLPInput),intent(in) :: input
-            type(PedigreeHolder) , intent(inout) :: pedigree
-            ! type(Pedigreeholder), intent(inout) :: genotype
-            integer(KIND=1), allocatable, dimension(:) :: tmp
-            integer :: unit, tmpID,i
-            character(len=IDLENGTH) :: seqid, seqsire, seqdam !placeholder variables
-            open(newunit=unit,FILE=trim(input%inputFile),STATUS="old") !INPUT FILE
+        !     type(AlphaMLPInput),intent(in) :: input
+        !     type(PedigreeHolder) , intent(inout) :: pedigree
+        !     ! type(Pedigreeholder), intent(inout) :: genotype
+        !     integer(KIND=1), allocatable, dimension(:) :: tmp
+        !     integer :: unit, tmpID,i
+        !     character(len=IDLENGTH) :: seqid, seqsire, seqdam !placeholder variables
+        !     open(newunit=unit,FILE=trim(input%inputFile),STATUS="old") !INPUT FILE
         
-            ! allocate(res(input%nGenotypedAnimals,input%endSnp-input%startSnp+1))
-            allocate(tmp(input%endSnp-input%startSnp+1))
-            tmp = 9
-            do i=1,input%nGenotypedAnimals
-                ! print *, i
-                read (unit,*) seqid, seqsire, seqdam, tmp(:)
+        !     ! allocate(res(input%nGenotypedAnimals,input%endSnp-input%startSnp+1))
+        !     allocate(tmp(input%endSnp-input%startSnp+1))
+        !     tmp = 9
+            ! do i=1,input%nGenotypedAnimals
+            !     ! print *, i
+            !     read (unit,*) seqid, seqsire, seqdam, tmp(:)
 
-                tmpID = pedigree%dictionary%getValue(seqid)
+            !     tmpID = pedigree%dictionary%getValue(seqid)
 
-                if (tmpID /= DICT_NULL) then
-                    call pedigree%pedigree(tmpID)%setGenotypeArray(tmp)
-                endif
-            end do
+            !     if (tmpID /= DICT_NULL) then
+            !         call pedigree%pedigree(tmpID)%setGenotypeArray(tmp)
+            !     endif
+            ! end do
 
-            close(unit)
+        !     close(unit)
         
-        end subroutine readGenotypes
+        ! end subroutine readGenotypes
 
-        subroutine readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance)
+        subroutine readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
             use PedigreeModule
             use ConstantModule, only : IDLENGTH
             real(kind=real64), dimension(:,:,:), allocatable, intent(inout) :: segregationEstimates    
+            real(kind=real64), dimension(:,:), allocatable :: tmpSegregation    
             integer, dimension(:, :), allocatable :: mapIndexes
             real(kind=real64), dimension(:), allocatable :: mapDistance
+            type(PedigreeHolder) , intent(inout) :: pedigree
 
             integer :: i, unit, numLDSnps
             real(kind=real64) :: normalizationConstant
             type(AlphaMLPInput) :: inputParams
-            character(len=IDLENGTH) :: tmp 
+            character(len=IDLENGTH) :: seqid 
 
 
             if(inputParams%mapFile == "No map") then
@@ -281,84 +283,99 @@
             else
                 open(newunit=unit,FILE=trim(inputParams%mapFile),STATUS="old") !INPUT FILE
                 do i = 1, size(mapIndexes, 2)
-                    read(unit, *) mapIndexes(:,i), mapDistance(i)
+                    read(unit, *) mapIndexes(1,i), mapIndexes(2,i), mapDistance(i)
+                    ! print *, mapIndexes(1,i), mapIndexes(2,i), mapDistance(i)
                 enddo
+
             endif 
             print *, size(mapIndexes)
             print *, size(mapDistance)
             numLDSnps = maxval(mapIndexes)
 
-            allocate(segregationEstimates(4, numLDSnps, inputParams%nGenotypedAnimals))
-
-            open(newunit=unit,FILE=trim(inputParams%segFile),STATUS="old") !INPUT FILE
-            do i=1,size(segregationEstimates, 3)
-                read (unit,*) tmp, segregationEstimates(1, :, i)
-                read (unit,*) tmp, segregationEstimates(2, :, i)
-                read (unit,*) tmp, segregationEstimates(3, :, i)
-                read (unit,*) tmp, segregationEstimates(4, :, i)
-            end do
+            ! allocate(segregationEstimates(4, numLDSnps, inputParams%nGenotypedAnimals))
+            allocate(segregationEstimates(4, numLDSnps, pedigree%pedigreeSize))
+            allocate(tmpSegregation(4, numLDSnps))
 
             close(unit)
-            normalizationConstant = .000001
-            segregationEstimates = (1-normalizationConstant) * segregationEstimates + normalizationConstant
-            print *, "read success"
+            open(newunit=unit,FILE=trim(inputParams%segFile),STATUS="old") !INPUT FILE
 
-        end subroutine
-
-        subroutine readSequence(input, pedigree, sequenceData)
-            use PedigreeModule
-            use ConstantModule, only : IDLENGTH,DICT_NULL
-
-            type(AlphaMLPInput),intent(in) :: input
-            type(PedigreeHolder) , intent(inout) :: pedigree
-            ! type(Pedigreeholder), intent(inout) :: genotype
-            integer(KIND=1), allocatable, dimension(:) :: tmp, ref, alt
-            integer(KIND=1), allocatable, dimension(:,:) :: genoEst
-            integer, allocatable, dimension(:,:,:) :: sequenceData
-            integer :: unit, tmpID,i, j
-            character(len=IDLENGTH) :: seqid !placeholder variables
-            real(kind=real64) :: err, p, q, pf
-
-            allocate(sequenceData(input%endSnp-input%startSnp+1, 2, input%nGenotypedAnimals))
-
-            open(newunit=unit,FILE=trim(input%sequenceFile),STATUS="old") !INPUT FILE
-        
-            ! allocate(res(input%nGenotypedAnimals,input%endSnp-input%startSnp+1))
-            allocate(ref(input%endSnp-input%startSnp+1))
-            allocate(alt(input%endSnp-input%startSnp+1))
-            allocate(genoEst(input%endSnp-input%startSnp+1, 3))
-            allocate(tmp(input%endSnp-input%startSnp+1))
-
-            err = 0.01
-            p = log(err)
-            q = log(1-err)
-            pf = log(.5)
-
-            ! tmp = 9
-            sequenceData = 0
-            do i=1,input%nGenotypedAnimals
-                read (unit,*) seqid, ref(:)
-                read (unit,*) seqid, alt(:)
+            print *, numLDSnps, pedigree%pedigreeSize
+            do i=1,pedigree%pedigreeSize
+                ! print *, i
+                read (unit,*) seqid, tmpSegregation(1,:)
+                read (unit,*) seqid, tmpSegregation(2,:)
+                read (unit,*) seqid, tmpSegregation(3,:)
+                read (unit,*) seqid, tmpSegregation(4,:)
 
                 tmpID = pedigree%dictionary%getValue(seqid)
-                print *, tmpID
-                sequenceData(:, 1, tmpId) = ref(:)
-                sequenceData(:, 2, tmpId) = alt(:)
-
-                genoEst(:, 1) = p*ref + q*alt
-                genoEst(:, 2) = pf*ref + pf*alt
-                genoEst(:, 3) = q*ref + p*alt
-
-                tmp = maxloc(genoEst, dim=2) - 1
-                where(ref+alt < 15) tmp = 9
 
                 if (tmpID /= DICT_NULL) then
-                    call pedigree%pedigree(tmpID)%setGenotypeArray(tmp)
+                    segregationEstimates(:,:,tmpID) = tmpSegregation
+                else
+                    print *, "Unrecognized animal", seqid
                 endif
             end do
 
-            close(unit)
-        end subroutine readSequence
+            normalizationConstant = .000001
+            segregationEstimates = (1-normalizationConstant) * segregationEstimates + normalizationConstant
+            print *, "read finished"
+            
+        end subroutine
+
+        ! subroutine readSequence(input, pedigree, sequenceData)
+        !     use PedigreeModule
+        !     use ConstantModule, only : IDLENGTH,DICT_NULL
+
+        !     type(AlphaMLPInput),intent(in) :: input
+        !     type(PedigreeHolder) , intent(inout) :: pedigree
+        !     ! type(Pedigreeholder), intent(inout) :: genotype
+        !     integer(KIND=1), allocatable, dimension(:) :: tmp, ref, alt
+        !     integer(KIND=1), allocatable, dimension(:,:) :: genoEst
+        !     integer, allocatable, dimension(:,:,:) :: sequenceData
+        !     integer :: unit, tmpID,i, j
+        !     character(len=IDLENGTH) :: seqid !placeholder variables
+        !     real(kind=real64) :: err, p, q, pf
+
+        !     allocate(sequenceData(input%endSnp-input%startSnp+1, 2, input%nGenotypedAnimals))
+
+        !     open(newunit=unit,FILE=trim(input%sequenceFile),STATUS="old") !INPUT FILE
+        
+        !     ! allocate(res(input%nGenotypedAnimals,input%endSnp-input%startSnp+1))
+        !     allocate(ref(input%endSnp-input%startSnp+1))
+        !     allocate(alt(input%endSnp-input%startSnp+1))
+        !     allocate(genoEst(input%endSnp-input%startSnp+1, 3))
+        !     allocate(tmp(input%endSnp-input%startSnp+1))
+
+        !     err = 0.01
+        !     p = log(err)
+        !     q = log(1-err)
+        !     pf = log(.5)
+
+        !     ! tmp = 9
+        !     sequenceData = 0
+        !     do i=1,input%nGenotypedAnimals
+        !         read (unit,*) seqid, ref(:)
+        !         read (unit,*) seqid, alt(:)
+
+        !         tmpID = pedigree%dictionary%getValue(seqid)
+        !         print *, tmpID
+        !         sequenceData(:, 1, tmpId) = ref(:)
+        !         sequenceData(:, 2, tmpId) = alt(:)
+
+        !         genoEst(:, 1) = p*ref + q*alt
+        !         genoEst(:, 2) = pf*ref + pf*alt
+        !         genoEst(:, 3) = q*ref + p*alt
+
+        !         tmp = maxloc(genoEst, dim=2) - 1
+        !         where(ref+alt < 15) tmp = 9
+
+        !         if (tmpID /= DICT_NULL) then
+        !             call pedigree%pedigree(tmpID)%setGenotypeArray(tmp)
+        !         endif
+        !     end do
+
+        !     close(unit)
+        ! end subroutine readSequence
 
 
 end module AlphaMLPInputModule
