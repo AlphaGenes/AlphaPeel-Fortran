@@ -172,8 +172,8 @@ module AlphaMLPModule
         type(peelingEstimates), pointer :: markerEstimates
         integer(kind=1), dimension(:), allocatable :: tmpGenotypes
         real(kind=real64), dimension(:,:), allocatable:: bayesianProduct
-        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
-        real(kind=real64), dimension(:,:), allocatable:: outputDosages
+        real(kind=real64), dimension(:,:,:), pointer:: outputHaplotypes
+        real(kind=real64), dimension(:,:), pointer:: outputDosages
         real(kind=real64), dimension(nSnps) :: markerError, maf
         real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
         real(kind=real64), dimension(:,:), allocatable:: markerSegregation
@@ -190,9 +190,9 @@ module AlphaMLPModule
         allocate(mapDistance(nSnpsAll))
         
         call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
-       !!$omp parallel do &
-       !!$omp default(shared) &
-       !!$omp private(i, markerSegregation, markerEstimates)
+ !      !$omp parallel do &
+ !      !$omp default(shared) &
+ !      !$omp private(i, markerSegregation, markerEstimates)
         do i = 1, inputParams%endSnp
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
@@ -205,19 +205,21 @@ module AlphaMLPModule
             markerEstimates%fullSegregation = markerSegregation
             
             call runSingleIndex(markerEstimates)
-
             outputHaplotypes(:, i, :) = markerEstimates%haplotypeEstimates
             outputDosages(i, :) = markerEstimates%genotypeEstimates
 
             markerError(i) = markerEstimates%genotypingErrorRate
             maf(i) = markerEstimates%maf
 
+            call markerEstimates%deallocateMarkerVariables()
             call markerEstimates%deallocatePeelingEstimates()
             deallocate(markerEstimates)
         enddo
-       !!$omp end parallel do
+   !    !$omp end parallel do
         call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
 
+        deallocate(outputHaplotypes)
+        deallocate(outputDosages)
     end subroutine
 
     ! Two subroutines below for running the HMM.
@@ -295,7 +297,7 @@ module AlphaMLPModule
         endif
 
 
-
+        ! print *, markerEstimates%penetrance(:, 1:5)
         !Make sure this is set from a file.
         call buildSegregationTraceTensor(markerEstimates)
         maxIteration = inputParams%nCycles
@@ -753,18 +755,19 @@ module AlphaMLPModule
         use PedigreeModule
         use IndividualModule, only: Individual
         implicit  none
-        type(AlphaMLPInput),intent(in) :: inputParams        
+        type(AlphaMLPInput),intent(in) :: inputParams 
+
 
         !Depreciating old genotype format.
-        if (inputParams%pedFile /= "No Pedigree") then
-            print *, inputParams%pedFile
-            pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
-            if (.not. inputParams%isSequence) then 
-                call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
-            else 
-                call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
-            endif
-        else
+        ! if (inputParams%pedFile /= "No Pedigree") then
+        print *, inputParams%pedFile
+        pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
+        if (.not. inputParams%isSequence) then 
+            call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
+        else 
+            call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
+        endif
+        ! else
             ! ! Init pedigree with format of genotype file
             ! ! assume old pedigree file
             ! pedigree = PedigreeHolder(inputParams%inputFile, nsnps=nSnps)
@@ -773,7 +776,22 @@ module AlphaMLPModule
             ! else 
             !     call readSequence(inputParams, pedigree, sequenceData)
             ! endif
-        endif
+        ! endif
+
+        ! block
+        !     integer :: tmp, i
+        !     character(LEN=20) :: rowfmt
+        !     open(newunit = tmp, FILE = "sequenceReadIn.txt", status="replace")
+
+        !     WRITE(rowfmt,'(A,I9,A)') '(a,',700010,'f10.4)'
+        !     do i = 1, pedigree%pedigreeSize
+        !         print *, i, pedigree%pedigree(i)%originalID
+        !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, pedigree%pedigree(i)%referAllele
+        !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID,  pedigree%pedigree(i)%alterAllele
+        !     enddo
+        !     close(tmp)
+        ! end block
+
         print *, "Pedigree and genotypes loaded"
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
@@ -1497,12 +1515,12 @@ module AlphaMLPModule
     subroutine writeOutputsToFileSingleLocus(combinedHaplotypes, combinedGenotypes, markerError, maf)
         use globalGP
         implicit none
-        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
-        real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
-        real(kind=real64), dimension(:), intent(in) :: markerError, maf
+        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
+        real(kind=real64), dimension(:,:), pointer :: combinedGenotypes
+        real(kind=real64), dimension(:), intent(inout) :: markerError, maf
         real(kind=real64) :: threshold
-        CHARACTER(LEN=30) :: rowfmt
-
+        CHARACTER(LEN=128) :: rowfmt
+        integer, dimension(nSnps) :: individualGenotype
         integer :: i, j, tmp
 
 
@@ -1524,10 +1542,36 @@ module AlphaMLPModule
             ! write(outputFile(index),'(a)') " " 
         enddo
 
+        print *, "row format", rowfmt
+        print *, size(combinedGenotypes, 1), size(combinedGenotypes, 2)
+        ! do i = 1, nAnimals
+        !     print *,  pedigree%pedigree(i)%originalID, combinedGenotypes(1:50, i)
+        ! enddo
         do i = 1, nAnimals
+            ! write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
             write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
       
+
+        !Output based on threshold
+        open(newunit = tmp, FILE = "pointGenotypes.txt", status="replace")
+
+        threshold = .999
+        do i = 1, nAnimals
+            individualGenotype = 9
+            do j = 1, nSnps
+                if(combinedHaplotypes(1, j, i) > threshold) individualGenotype(j) = 0
+                if(combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)> threshold) individualGenotype(j) = 1
+                if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
+            enddo
+            WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
+
+            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
+        enddo
+        close(tmp)
+
+
+
     end subroutine
 
     subroutine additiveOuterProduct(pfather, pmate, pjoint)

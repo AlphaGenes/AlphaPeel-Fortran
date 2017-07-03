@@ -110,6 +110,7 @@ module globalGP
             this%fullSegregation = 1.0/4.0
 
             this%genotypeEstimates = 0
+            this%haplotypeEstimates = 0
 
             this%posteriorAll = 0
             this%sirePosteriorMateAll = 0
@@ -143,6 +144,7 @@ module globalGP
             deallocate(this%mafEstimator)
         end subroutine
 
+
         subroutine allocateMarkerVariables(this, nHaplotypes, nAnimals, nMatingPairs) 
             implicit none
             class(peelingEstimates) :: this
@@ -156,7 +158,6 @@ module globalGP
 
             allocate(this%penetrance(nHaplotypes, nAnimals))
             allocate(this%anterior(nHaplotypes, nAnimals))
-            ! print *, "Hello world!", nHaplotypes, nMatingPairs
             allocate(this%posterior(nHaplotypes, nAnimals))
             allocate(this%sirePosteriorMate(nHaplotypes, nMatingPairs))
             allocate(this%damePosteriorMate(nHaplotypes, nMatingPairs))
@@ -235,7 +236,6 @@ module globalGP
             integer(kind=1), dimension(:), allocatable :: genotypes
             real(kind=real64) :: error
             real(kind=real64), dimension(nHaplotypes,0:9) :: genotypesToHaplotypes
-            integer, dimension(:), allocatable :: ref, alt
             real(kind=real64) :: p, q, pf !pf is log of .5
 
             genotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(this%index)
@@ -259,15 +259,12 @@ module globalGP
             real(kind=real64) :: p, q, pf !pf is log of .5
 
             error = this%genotypingErrorRate
-            error = this%genotypingErrorRate
             seq = pedigree%getSequenceAsArrayWithMissing(this%index)
-            ref = seq(1,:)
-            alt = seq(2,:)
-
+            ref = seq(:, 1)
+            alt = seq(:, 2)
             p = log(1-error)
             q = log(error)
             pf = log(.5)
-
 
             this%penetrance(1, :) = p*ref + q*alt
             this%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
@@ -316,7 +313,6 @@ module globalGP
 
             nChanges = 0.05*2 + sum(zi)
             nObservations = 1.0*2 + sum(recodedGenotypes)
-            ! print *, nChanges, nObservations
             observedChangeRate = nChanges/nObservations
             ! currentErrorEstimator => this%genotypingErrorEstimator
             ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
@@ -339,8 +335,8 @@ module globalGP
             type(fixedPointEstimator), pointer :: currentErrorEstimator
           
             seq = pedigree%getSequenceAsArrayWithMissing(this%index)
-            ref = seq(1,:)
-            alt = seq(2,:)
+            ref = seq(:, 1)
+            alt = seq(:, 2)
 
             haplotypes = this%haplotypeEstimates
             totReads = ref + alt
@@ -356,7 +352,9 @@ module globalGP
             ! currentErrorEstimator => this%genotypingErrorEstimator
             ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
             ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+            ! print *, "obsChange", observedChangeRate
             this%genotypingErrorRate = min(observedChangeRate, .01)
+            ! this%genotypingErrorRate = .01
         end subroutine
 
 
