@@ -115,7 +115,16 @@ module AlphaMLPModule
     subroutine runAlphaMLPIndependently()
         use globalGP, only: nSnps, sequenceData, inputParams
         implicit none
-        inputParams = AlphaMLPInput()        
+        character(len=4096) :: SpecFile
+
+        if (Command_Argument_Count() > 0) then
+            call Get_Command_Argument(1,SpecFile)
+        else
+            SpecFile="AlphaImputeSpec.txt"
+        end if
+
+
+        inputParams = AlphaMLPInput(SpecFile)        
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         nSnpsAll = inputParams%nSnp
 
