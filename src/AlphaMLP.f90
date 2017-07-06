@@ -202,10 +202,11 @@ module AlphaMLPModule
  !      !$omp parallel do &
  !      !$omp default(shared) &
  !      !$omp private(i, markerSegregation, markerEstimates)
-        do i = 1, inputParams%endSnp
+        ! do i = inputParams%startSnp, inputParams%endSnp
+        do i = 1, nSnps
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
-            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i)
+            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
             !Get the estimate midway between the two markers. 
             markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, i),:) + &
                                         mapDistance(i)*segregationEstimates(:,mapIndexes(2, i),:) 
@@ -242,7 +243,8 @@ module AlphaMLPModule
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i)
+            print *, "Allocating ", i
+            call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
         enddo
 
 
@@ -772,7 +774,7 @@ module AlphaMLPModule
         print *, inputParams%pedFile
         pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
         if (.not. inputParams%isSequence) then 
-            call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp)     
+            call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)     
         else 
             call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
         endif
@@ -1527,7 +1529,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
         real(kind=real64), dimension(:,:), pointer :: combinedGenotypes
         real(kind=real64), dimension(:), intent(inout) :: markerError, maf
-        real(kind=real64) :: threshold
+        real(kind=real64), dimension(:), allocatable :: thresholds
         CHARACTER(LEN=128) :: rowfmt
         integer, dimension(nSnps) :: individualGenotype
         integer :: i, j, tmp
@@ -1563,9 +1565,32 @@ module AlphaMLPModule
       
 
         !Output based on threshold
-        open(newunit = tmp, FILE = "pointGenotypes.txt", status="replace")
+        thresholds = [.333D0, .5D0, .9D0, .99D0, .999D0, .9999D0, .99999D0]
+        do i = 1, size(thresholds)
+            call callAlleles(thresholds(i), combinedHaplotypes)
+        enddo
 
-        threshold = .999
+        close(tmp)
+
+
+
+    end subroutine
+    subroutine callAlleles(threshold, combinedHaplotypes) 
+        use globalGP
+        implicit none
+        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
+        real(kind=real64) :: threshold
+        CHARACTER(LEN=128) :: rowfmt, fileName
+        integer, dimension(nSnps) :: individualGenotype
+        integer :: i, j, tmp
+
+
+        write(fileName, '(F8.5)') threshold
+        fileName =  'pointGenotypes_' // trim(fileName) // '.txt'
+        open(newunit = tmp, FILE = trim(fileName), status="replace")
+
+        WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'I2)'
+
         do i = 1, nAnimals
             individualGenotype = 9
             do j = 1, nSnps
@@ -1573,15 +1598,12 @@ module AlphaMLPModule
                 if(combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)> threshold) individualGenotype(j) = 1
                 if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
             enddo
-            WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
 
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
         enddo
         close(tmp)
-
-
-
     end subroutine
+
 
     subroutine additiveOuterProduct(pfather, pmate, pjoint)
         use globalGP, only: nHaplotypes
