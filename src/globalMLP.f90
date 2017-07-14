@@ -267,8 +267,8 @@ module globalGP
             pf = log(.5)
 
             this%penetrance(1, :) = p*ref + q*alt
-            this%penetrance(2, :) = pf*ref + pf*alt - log(2D0)
-            this%penetrance(3, :) = pf*ref + pf*alt - log(2D0)
+            this%penetrance(2, :) = pf*ref + pf*alt
+            this%penetrance(3, :) = pf*ref + pf*alt
             this%penetrance(4, :) = q*ref + p*alt
 
             !Maybe use this as a second error measure for sequence.

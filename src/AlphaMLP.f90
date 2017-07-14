@@ -177,7 +177,7 @@ module AlphaMLPModule
     subroutine runIndependentSingleLocus()
         use globalGP, only: nSnps, inputParams, mapIndexes, mapDistance
         implicit none
-        integer :: i
+        integer :: i, snpID
         type(peelingEstimates), pointer :: markerEstimates
         integer(kind=1), dimension(:), allocatable :: tmpGenotypes
         real(kind=real64), dimension(:,:), allocatable:: bayesianProduct
@@ -191,9 +191,9 @@ module AlphaMLPModule
         allocate(outputDosages(nSnps, nAnimals))
 
         print *, "Running Singlelocus Peeling"
-        open(newunit = outputFile, FILE = "singleLocusHaplotypes.txt", status="replace")
-        open(newunit = auxFile, FILE = "singleLocusGenotypes.txt", status="replace")
-        open(newunit = paramaterFile, FILE = "paramaterEstimates-single.txt", status="replace")
+        open(newunit = outputFile, FILE = trim(inputParams%prefix) // "singleLocusHaplotypes.txt", status="replace")
+        open(newunit = auxFile, FILE = trim(inputParams%prefix) // "singleLocusGenotypes.txt", status="replace")
+        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // "paramaterEstimates-single.txt", status="replace")
 
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
@@ -206,10 +206,11 @@ module AlphaMLPModule
         do i = 1, nSnps
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
-            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
+            snpID = inputParams%startSnp + i - 1
+            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, snpID)
             !Get the estimate midway between the two markers. 
-            markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, i),:) + &
-                                        mapDistance(i)*segregationEstimates(:,mapIndexes(2, i),:) 
+            markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, snpID),:) + &
+                                        mapDistance(i)*segregationEstimates(:,mapIndexes(2, snpID),:) 
 
             ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
             markerEstimates%fullSegregation = markerSegregation
@@ -220,6 +221,56 @@ module AlphaMLPModule
 
             markerError(i) = markerEstimates%genotypingErrorRate
             maf(i) = markerEstimates%maf
+
+            ! block
+            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
+            !     CHARACTER(LEN=30) :: rowfmt
+            !     integer :: i, j, tmp
+            !     open(newunit = tmp, FILE = "penetrance.txt", status="replace")
+            !     combinedHaplotypes = markerEstimates%penetrance
+            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
+            !     print *, "row format", rowfmt
+            !     do i = 1, nAnimals
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
+            !     enddo
+            ! end block
+
+            ! block
+            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
+            !     CHARACTER(LEN=30) :: rowfmt
+            !     integer :: i, j, tmp
+            !     open(newunit = tmp, FILE = "posterior.txt", status="replace")
+            !     combinedHaplotypes = markerEstimates%posterior
+            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
+            !     print *, "row format", rowfmt
+            !     do i = 1, nAnimals
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
+            !     enddo
+            ! end block
+
+            ! block
+            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
+            !     CHARACTER(LEN=30) :: rowfmt
+            !     integer :: i, j, tmp
+            !     open(newunit = tmp, FILE = "anterior.txt", status="replace")
+            !     combinedHaplotypes = markerEstimates%anterior
+            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
+            !     print *, "row format", rowfmt
+            !     do i = 1, nAnimals
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
+            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
+            !     enddo
+            ! end block
+
+
 
             call markerEstimates%deallocateMarkerVariables()
             call markerEstimates%deallocatePeelingEstimates()
@@ -330,7 +381,7 @@ module AlphaMLPModule
             if(.not. inputParams%isSequence) call markerEstimates%updateGenotypeErrorRates()
             if(inputParams%isSequence) call markerEstimates%updateSequenceErrorRates()
             call updateMafEstimates(markerEstimates%genotypeEstimates, markerEstimates)
-            converged = markerEstimates%estimatedError < .0001
+            converged = markerEstimates%estimatedError < .000001
 
         enddo
 
@@ -944,7 +995,7 @@ module AlphaMLPModule
         !assume the haplotypes are of the form aa, aA, Aa, AA, in order Father,Mother
         !This will need some work for other haplotypes
         
-        error = .0001 !Mutation rate
+        error = 1E-7 !Mutation rate
         paternalTransmission(0,:) = [1.-error, 1.-error, error, error] !likelihood of transmitting "a" given you are transmitting the paternal haplotype
         paternalTransmission(1,:) = 1. - paternalTransmission(0,:)
         
@@ -1586,7 +1637,7 @@ module AlphaMLPModule
 
 
         write(fileName, '(F8.5)') threshold
-        fileName =  'pointGenotypes_' // trim(fileName) // '.txt'
+        fileName =  trim(inputParams%prefix) // 'pointGenotypes_' // trim(adjustl(fileName)) // '.txt'
         open(newunit = tmp, FILE = trim(fileName), status="replace")
 
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'I2)'

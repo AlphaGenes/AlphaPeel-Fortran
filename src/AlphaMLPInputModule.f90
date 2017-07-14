@@ -46,6 +46,7 @@
         character(len=FILELENGTH) :: runType
         character(len=FILELENGTH) :: mapFile
         character(len=FILELENGTH) :: segFile
+        character(len=FILELENGTH) :: prefix
 
     end type AlphaMLPInput
 
@@ -139,7 +140,8 @@
             res%startSnp = 0
             res%endSnp = 0
             res%inputFile = "AlphaMLPGenotypes.txt"
-            res%outputFile = "AlphaMLPs.txt"
+            res%outputFile = "MLP"
+            res%prefix = ""
             res%pedFile = "No Pedigree"
             res%runType = "multi"
 
@@ -189,6 +191,9 @@
                         
                         case("pedigree")
                             write(res%pedFile, "(A)") trim(second(1))
+
+                         case("prefix")
+                            write(res%prefix, "(A)") trim(second(1)) // "-"
                         
                         case("startsnp")
                             read(second(1),*) res%startsnp
@@ -300,8 +305,8 @@
             open(newunit=unit,FILE=trim(inputParams%segFile),STATUS="old") !INPUT FILE
 
             print *, numLDSnps, pedigree%pedigreeSize
+            ! stop
             do i=1,pedigree%pedigreeSize
-                ! print *, i
                 read (unit,*) seqid, tmpSegregation(1,:)
                 read (unit,*) seqid, tmpSegregation(2,:)
                 read (unit,*) seqid, tmpSegregation(3,:)
