@@ -120,7 +120,7 @@ module AlphaMLPModule
         if (Command_Argument_Count() > 0) then
             call Get_Command_Argument(1,SpecFile)
         else
-            SpecFile="AlphaImputeSpec.txt"
+            SpecFile="AlphaMLPSpec.txt"
         end if
 
 
