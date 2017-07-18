@@ -294,7 +294,7 @@ module AlphaMLPModule
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            print *, "Allocating ", i
+            ! print *, "Allocating ", i
             call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
         enddo
 
