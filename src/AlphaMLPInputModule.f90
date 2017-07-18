@@ -210,9 +210,6 @@
 
                         case("sequencefile")
                             read(second(1),*) res%sequenceFile
-                        case("usehmm")
-                            read(second(1),*) tmp
-                            if(tmp == "yes") res%useHMM = .true.
                         case("ncycles")
                             read(second(1),*) res%nCycles
                         case("mapfile")
