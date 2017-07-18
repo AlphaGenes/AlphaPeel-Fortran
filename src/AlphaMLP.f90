@@ -1506,7 +1506,7 @@ module AlphaMLPModule
 
 
         print *, "Writting outputs"
-        ! write(paramaterFile, '(a)') "maf ", "gError ", "tError"
+        write(paramaterFile, '(a)') "maf ", "genotypeError ", "recombinationRate"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
             write(paramaterFile, '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate
