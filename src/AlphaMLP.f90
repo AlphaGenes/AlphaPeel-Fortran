@@ -185,9 +185,11 @@ module AlphaMLPModule
 
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
-        
-        call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
- !      !$omp parallel do &
+        if(inputParams%segFile .ne. "No seg") then 
+            call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
+        endif      
+
+        !!$omp parallel do &
  !      !$omp default(shared) &
  !      !$omp private(i, markerSegregation, markerEstimates)
         ! do i = inputParams%startSnp, inputParams%endSnp
