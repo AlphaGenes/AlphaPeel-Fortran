@@ -1,0 +1,8 @@
+nSnp         ,       300
+StartSnp,           1
+EndSnp,         300
+InputFilePath, smallsim-maskedGenotype.txt
+pedigree, smallsim-pedigree.txt
+OutputFilePath, multilocus 
+nCycles, 10
+runType, multi
