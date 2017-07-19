@@ -209,7 +209,11 @@
                             write(res%mapFile, "(A)") trim(second(1))
                         case("segregation")
                             write(res%segFile, "(A)") trim(second(1))
-
+                        case("callingthresholds")
+                            allocate(res%thresholds(size(second)))
+                            do i=1,size(second)
+                                read(second(i),*) res%thresholds(i)
+                            enddo
 
 
                         case default

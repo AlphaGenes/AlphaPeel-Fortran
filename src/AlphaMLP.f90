@@ -1441,16 +1441,16 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
         real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
         integer, dimension(nSnps) :: individualGenotype
-        real(kind=real64) :: threshold
+        real(kind=real64), dimension(:), allocatable :: thresholds
         CHARACTER(LEN=30) :: rowfmt
         integer :: haplotypeFile, dosageFile, segregationFile, paramaterFile
         integer :: i, j, tmp
 
 
-        open(newunit = haplotypeFile, FILE = "multiLocusHaplotypes.txt", status="replace")
-        open(newunit = dosageFile, FILE = "multiLocusGenotypes.txt", status="replace")
-        open(newunit = segregationFile, FILE = "segregationEstimates.txt", status="replace")
-        open(newunit = paramaterFile, FILE = "paramaterEstimates.txt", status="replace")
+        open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // ".haps", status="replace")
+        open(newunit = dosageFile, FILE = trim(inputParams%prefix) // ".dosages", status="replace")
+        open(newunit = segregationFile, FILE = trim(inputParams%prefix) // ".seg", status="replace")
+        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
     
         print *, "Writting outputs"
         write(paramaterFile, '(a)') "maf ", "genotypeError ", "recombinationRate"
@@ -1477,8 +1477,12 @@ module AlphaMLPModule
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
             ! write(outputFile(index),'(a)') " " 
         enddo
-
-        call callAlleles(threshold, combinedHaplotypes)
+        if(allocated(inputParams%thresholds)) then
+            thresholds = inputParams%thresholds
+            do i = 1, size(thresholds)
+                call callAlleles(thresholds(i), combinedHaplotypes)
+            enddo
+        endif
 
 
         deallocate(combinedHaplotypes)
@@ -1531,9 +1535,9 @@ module AlphaMLPModule
 
         print *, "Writting outputs"
 
-        open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // "singleLocusHaplotypes.txt", status="replace")
-        open(newunit = dosageFile, FILE = trim(inputParams%prefix) // "singleLocusGenotypes.txt", status="replace")
-        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // "paramaterEstimates-single.txt", status="replace")
+        open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // ".haps", status="replace")
+        open(newunit = dosageFile, FILE = trim(inputParams%prefix) // ".dosages", status="replace")
+        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
 
         ! write(paramaterFile, '(a)') "maf ", "gError "
         do i = 1, nSnps
@@ -1563,12 +1567,14 @@ module AlphaMLPModule
       
 
         !Output based on threshold
-        thresholds = [.333D0, .5D0, .9D0, .99D0, .999D0, .9999D0, .99999D0]
-        do i = 1, size(thresholds)
-            call callAlleles(thresholds(i), combinedHaplotypes)
-        enddo
+        if(allocated(inputParams%thresholds)) then
+            thresholds = inputParams%thresholds
+            do i = 1, size(thresholds)
+                call callAlleles(thresholds(i), combinedHaplotypes)
+            enddo
+        endif
 
-        close(tmp)
+
 
 
 
