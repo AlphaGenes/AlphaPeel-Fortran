@@ -28,12 +28,6 @@ module globalGP
     type(PedigreeHolder) :: pedigree
     type(IndividualLinkedList), dimension(:), allocatable :: offspringList
     ! type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
-
-    ! units for file
-    integer :: outputFile
-    integer :: auxFile
-    integer :: segregationFile, consensusFile, pointEstimate
-    integer :: paramaterFile
     
     integer, dimension(:,:,:), allocatable :: sequenceData
 

@@ -35,18 +35,14 @@
         integer :: nGenotypedAnimals
         integer :: nSnp
         character(len=FILELENGTH) :: inputFile
-        character(len=FILELENGTH) :: outputFile
         integer :: startSnp
         integer :: endSnp
         integer :: nCycles
-        logical :: isSequence, useHMM
-        character(len=FILELENGTH) :: sequenceFile
-        character(len=FILELENGTH) :: pedFile
+        logical :: isSequence
+        character(len=FILELENGTH) :: sequenceFile, pedFile, runtype
+        character(len=FILELENGTH) :: mapFile, segFile, prefix
 
-        character(len=FILELENGTH) :: runType
-        character(len=FILELENGTH) :: mapFile
-        character(len=FILELENGTH) :: segFile
-        character(len=FILELENGTH) :: prefix
+        real(kind=real64), dimension(:), allocatable :: thresholds
 
     end type AlphaMLPInput
 
@@ -57,8 +53,8 @@
     interface AlphaMLPInput
 
         module procedure initFromFile
-        module procedure initFromParams
-        module procedure initFromSnps
+        ! module procedure initFromParams
+        ! module procedure initFromSnps
     end interface AlphaMLPInput
     contains
 
@@ -68,27 +64,27 @@
         !> @date    Febuary 08, 2016
         !> @return AlphaMLPInput of info for spec file
         !---------------------------------------------------------------------------
-        function initFromParams(nGenotypedAnimals,nSnp,inputFile,outputFile,startSnp,endSnp) result(res)
-            integer,intent(in) :: nGenotypedAnimals
-            integer,intent(in) :: nSnp
-            character(len=*),intent(in) :: inputFile
-            character(len=*),intent(in) :: outputFile
-            integer,intent(in) :: startSnp
-            integer,intent(in) :: endSnp
+        ! function initFromParams(nGenotypedAnimals,nSnp,inputFile,outputFile,startSnp,endSnp) result(res)
+        !     integer,intent(in) :: nGenotypedAnimals
+        !     integer,intent(in) :: nSnp
+        !     character(len=*),intent(in) :: inputFile
+        !     character(len=*),intent(in) :: outputFile
+        !     integer,intent(in) :: startSnp
+        !     integer,intent(in) :: endSnp
 
-            type(AlphaMLPInput) :: res
-
-
-            res%nGenotypedAnimals = nGenotypedAnimals
-            res%nsnp = nsnp
-            res%inputFile = inputFile
-            res%outputFile = outputFile
-            res%startSnp = startSnp
-            res%endSnp = endSnp
+        !     type(AlphaMLPInput) :: res
 
 
+        !     res%nGenotypedAnimals = nGenotypedAnimals
+        !     res%nsnp = nsnp
+        !     res%inputFile = inputFile
+        !     res%outputFile = outputFile
+        !     res%startSnp = startSnp
+        !     res%endSnp = endSnp
 
-        end function initFromParams
+
+
+        ! end function initFromParams
 
                 !---------------------------------------------------------------------------
         !> @brief Constructor for AlphaMLP input based on passed in parameters
@@ -96,19 +92,19 @@
         !> @date    Febuary 08, 2016
         !> @return AlphaMLPInput of info for spec file
         !---------------------------------------------------------------------------
-        function initFromSnps(startSnp,endSnp) result(res)
+        ! function initFromSnps(startSnp,endSnp) result(res)
 
-            integer,intent(in) :: startSnp
-            integer,intent(in) :: endSnp
+        !     integer,intent(in) :: startSnp
+        !     integer,intent(in) :: endSnp
 
-            type(AlphaMLPInput) :: res
-
-
-            res%startSnp = startSnp
-            res%endSnp = endSnp
+        !     type(AlphaMLPInput) :: res
 
 
-        end function initFromSnps
+        !     res%startSnp = startSnp
+        !     res%endSnp = endSnp
+
+
+        ! end function initFromSnps
 
         
                 !---------------------------------------------------------------------------
@@ -137,10 +133,9 @@
             ! init everything
             res%nGenotypedAnimals = 0
             res%nSnp = 0
-            res%startSnp = 0
-            res%endSnp = 0
+            res%startSnp = -1
+            res%endSnp = -1
             res%inputFile = "AlphaMLPGenotypes.txt"
-            res%outputFile = "MLP"
             res%prefix = ""
             res%pedFile = "No Pedigree"
             res%runType = "multi"
@@ -149,10 +144,9 @@
             res%sequenceFile = ""
 
             res%nCycles = 10
-            res%useHMM = .false.
 
             res%mapFile = "No map"
-            res%segFile = "segregationEstimates.txt"
+            res%segFile = "No seg"
 
             open(newunit=unit, file=SpecFile, action="read", status="old")
             IOStatus = 0
@@ -184,16 +178,13 @@
 
                         case("outputfilepath")
                             if (.not. allocated(second)) then
-                                write(*, "(A,A)") "No output file specified. Using default filename: ", res%outputFile
+                                write(*, "(A,A)") "No output file specified. Using default filename: ", res%prefix
                             else
-                                write(res%outputFile, "(A)") trim(second(1))
+                                write(res%prefix, "(A)") trim(second(1))
                             end if
                         
                         case("pedigree")
                             write(res%pedFile, "(A)") trim(second(1))
-
-                         case("prefix")
-                            write(res%prefix, "(A)") trim(second(1)) // "-"
                         
                         case("startsnp")
                             read(second(1),*) res%startsnp
@@ -210,8 +201,10 @@
 
                         case("sequencefile")
                             read(second(1),*) res%sequenceFile
+
                         case("ncycles")
                             read(second(1),*) res%nCycles
+
                         case("mapfile")
                             write(res%mapFile, "(A)") trim(second(1))
                         case("segregation")
@@ -228,6 +221,18 @@
                 
             enddo READFILE
             
+            !isSequence
+            if(res%sequenceFile .ne. "") then
+                print *, "Sequence file detected, running in sequence mode"
+                res%isSequence = .true.
+            endif
+            !Start/endSnp
+            if(res%startSnp == -1 .or. res%endSnp == -1) then
+                print *, "No start or end snp given, running entire chromosome"
+                res%startSnp = 1
+                res%endSnp = res%nSnp 
+            endif
+
         end function initFromFile
 
 

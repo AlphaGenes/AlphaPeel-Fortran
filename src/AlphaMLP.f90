@@ -36,7 +36,7 @@ module AlphaMLPModule
     use AlphaMLPInputModule
 
     interface runAlphaMLP
-        module procedure runAlphaMLPAlphaImpute
+        ! module procedure runAlphaMLPAlphaImpute
         module procedure runAlphaMLPIndependently
     end interface runAlphaMLP
     contains 
@@ -55,51 +55,51 @@ module AlphaMLPModule
     !
     !> @date       Febuary 7, 2016
     !---------------------------------------------------------------------------
-    subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
+    ! subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
 
-        use globalGP, only :pedigree, nsnps
+    !     use globalGP, only :pedigree, nsnps
         
-        integer, intent(in) :: startSnp, endSnp
-        integer :: i, j
-        type(PedigreeHolder) :: ped
-        real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
-        real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
-        type(AlphaMLPInput) :: inputParams
-        integer :: nHaplotypes
+    !     integer, intent(in) :: startSnp, endSnp
+    !     integer :: i, j
+    !     type(PedigreeHolder) :: ped
+    !     real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
+    !     real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
+    !     type(AlphaMLPInput) :: inputParams
+    !     integer :: nHaplotypes
 
-        type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
+    !     type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
 
-        pedigree = ped
-        nHaplotypes = 4
+    !     pedigree = ped
+    !     nHaplotypes = 4
 
        
 
-        if (.not. allocated(AlphaMLPOutput)) then
-            allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
-        endif
-        call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
-        inputParams = AlphaMLPInput(startSnp,endSnp)
+    !     if (.not. allocated(AlphaMLPOutput)) then
+    !         allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
+    !     endif
+    !     call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
+    !     inputParams = AlphaMLPInput(startSnp,endSnp)
         
-        call setupPhaseChildOfFounders()
+    !     call setupPhaseChildOfFounders()
         
-        call setupTraceTensor
-        nSnps = inputParams%endSnp-inputParams%startSnp+1
-        nSnpsAll = inputParams%nSnp
-        nAnimals = pedigree%pedigreeSize
-        founders = pedigree%founders%convertToArrayIDs()
+    !     call setupTraceTensor
+    !     nSnps = inputParams%endSnp-inputParams%startSnp+1
+    !     nSnpsAll = inputParams%nSnp
+    !     nAnimals = pedigree%pedigreeSize
+    !     founders = pedigree%founders%convertToArrayIDs()
 
 
-        call runMultiLocusAlphaMLP(currentPeelingEstimates)
-        do i = startSnp, endSnp
-            do j = 1, 4
-                AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
-            enddo
-            maf(i) = currentPeelingEstimates(i)%maf
-        enddo
+    !     call runMultiLocusAlphaMLP(currentPeelingEstimates)
+    !     do i = startSnp, endSnp
+    !         do j = 1, 4
+    !             AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
+    !         enddo
+    !         maf(i) = currentPeelingEstimates(i)%maf
+    !     enddo
 
-        deallocate(currentPeelingEstimates)
+    !     deallocate(currentPeelingEstimates)
 
-    end subroutine runAlphaMLPAlphaImpute
+    ! end subroutine runAlphaMLPAlphaImpute
 
     !---------------------------------------------------------------------------
     ! DESCRIPTION:
@@ -159,16 +159,9 @@ module AlphaMLPModule
         integer :: i
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
 
-        print *, "Running Multilocus Peeling"
-        open(newunit = outputFile, FILE = "multiLocusHaplotypes.txt", status="replace")
-        open(newunit = auxFile, FILE = "multiLocusGenotypes.txt", status="replace")
-        open(newunit = segregationFile, FILE = "segregationEstimates.txt", status="replace")
-        open(newunit = consensusFile, FILE = "pointGenotypes.txt", status="replace")
-        open(newunit = paramaterFile, FILE = "paramaterEstimates.txt", status="replace")
-    
         call runMultiLocusAlphaMLP(currentPeelingEstimates)
         
-        call writeOutputsToFile(currentPeelingEstimates)
+        call writeOutputsToFileMultiLocus(currentPeelingEstimates)
 
         deallocate(currentPeelingEstimates)
 
@@ -190,11 +183,6 @@ module AlphaMLPModule
         allocate(outputHaplotypes(nHaplotypes, nSnps, nAnimals))
         allocate(outputDosages(nSnps, nAnimals))
 
-        print *, "Running Singlelocus Peeling"
-        open(newunit = outputFile, FILE = trim(inputParams%prefix) // "singleLocusHaplotypes.txt", status="replace")
-        open(newunit = auxFile, FILE = trim(inputParams%prefix) // "singleLocusGenotypes.txt", status="replace")
-        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // "paramaterEstimates-single.txt", status="replace")
-
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
         
@@ -208,69 +196,23 @@ module AlphaMLPModule
             allocate(markerEstimates)
             snpID = inputParams%startSnp + i - 1
             call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, snpID)
-            !Get the estimate midway between the two markers. 
-            markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, snpID),:) + &
-                                        mapDistance(i)*segregationEstimates(:,mapIndexes(2, snpID),:) 
 
-            ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
-            markerEstimates%fullSegregation = markerSegregation
-            
+            if(inputParams%segFile .ne. "No seg") then 
+                !Get the estimate midway between the two markers. 
+                markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, snpID),:) + &
+                                            mapDistance(i)*segregationEstimates(:,mapIndexes(2, snpID),:) 
+
+                ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
+                markerEstimates%fullSegregation = markerSegregation
+            else
+                markerEstimates%fullSegregation = .25
+            endif
             call runSingleIndex(markerEstimates)
             outputHaplotypes(:, i, :) = markerEstimates%haplotypeEstimates
             outputDosages(i, :) = markerEstimates%genotypeEstimates
 
             markerError(i) = markerEstimates%genotypingErrorRate
             maf(i) = markerEstimates%maf
-
-            ! block
-            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
-            !     CHARACTER(LEN=30) :: rowfmt
-            !     integer :: i, j, tmp
-            !     open(newunit = tmp, FILE = "penetrance.txt", status="replace")
-            !     combinedHaplotypes = markerEstimates%penetrance
-            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
-            !     print *, "row format", rowfmt
-            !     do i = 1, nAnimals
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
-            !     enddo
-            ! end block
-
-            ! block
-            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
-            !     CHARACTER(LEN=30) :: rowfmt
-            !     integer :: i, j, tmp
-            !     open(newunit = tmp, FILE = "posterior.txt", status="replace")
-            !     combinedHaplotypes = markerEstimates%posterior
-            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
-            !     print *, "row format", rowfmt
-            !     do i = 1, nAnimals
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
-            !     enddo
-            ! end block
-
-            ! block
-            !     real(kind=real64), dimension(:,:), allocatable :: combinedHaplotypes
-            !     CHARACTER(LEN=30) :: rowfmt
-            !     integer :: i, j, tmp
-            !     open(newunit = tmp, FILE = "anterior.txt", status="replace")
-            !     combinedHaplotypes = markerEstimates%anterior
-            !     WRITE(rowfmt,'(A,I9,A)') '(a,',1+10,'f10.4)'
-            !     print *, "row format", rowfmt
-            !     do i = 1, nAnimals
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3, i)
-            !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4, i)
-            !     enddo
-            ! end block
-
-
 
             call markerEstimates%deallocateMarkerVariables()
             call markerEstimates%deallocatePeelingEstimates()
@@ -1491,20 +1433,25 @@ module AlphaMLPModule
     ! end subroutine
 
 
-    subroutine writeOutputsToFile(currentPeelingEstimates)
+    subroutine writeOutputsToFileMultiLocus(currentPeelingEstimates)
         use globalGP
         implicit none
         type(peelingEstimates), pointer :: markerEstimates
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
-        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
+        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
         real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
         integer, dimension(nSnps) :: individualGenotype
         real(kind=real64) :: threshold
         CHARACTER(LEN=30) :: rowfmt
-
+        integer :: haplotypeFile, dosageFile, segregationFile, paramaterFile
         integer :: i, j, tmp
 
 
+        open(newunit = haplotypeFile, FILE = "multiLocusHaplotypes.txt", status="replace")
+        open(newunit = dosageFile, FILE = "multiLocusGenotypes.txt", status="replace")
+        open(newunit = segregationFile, FILE = "segregationEstimates.txt", status="replace")
+        open(newunit = paramaterFile, FILE = "paramaterEstimates.txt", status="replace")
+    
         print *, "Writting outputs"
         write(paramaterFile, '(a)') "maf ", "genotypeError ", "recombinationRate"
         do i = 1, nSnps
@@ -1523,13 +1470,19 @@ module AlphaMLPModule
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
         print *, "row format", rowfmt
         do i = 1, nAnimals
-            tmp = outputFile
+            tmp = haplotypeFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
             ! write(outputFile(index),'(a)') " " 
         enddo
+
+        call callAlleles(threshold, combinedHaplotypes)
+
+
+        deallocate(combinedHaplotypes)
+        allocate(combinedHaplotypes(4, nSnps, nAnimals))
 
         !Output Segregation
         do i = 1, nSnps
@@ -1547,6 +1500,7 @@ module AlphaMLPModule
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
             ! write(outputFile(index),'(a)') " " 
         enddo
+        deallocate(combinedHaplotypes)
 
         allocate(combinedGenotypes(nSnps, nAnimals))
         do i = 1, nSnps
@@ -1555,21 +1509,8 @@ module AlphaMLPModule
         enddo
 
         do i = 1, nAnimals
-            write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+            write(dosageFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
-        threshold = .99999
-        do i = 1, nAnimals
-            individualGenotype = 9
-            do j = 1, nSnps
-                if(combinedHaplotypes(1, j, i) > threshold) individualGenotype(j) = 0
-                if(combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)> threshold) individualGenotype(j) = 1
-                if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
-            enddo
-            WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
-
-            write(consensusFile, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
-        enddo
-
 
       
     end subroutine
@@ -1583,10 +1524,16 @@ module AlphaMLPModule
         real(kind=real64), dimension(:), allocatable :: thresholds
         CHARACTER(LEN=128) :: rowfmt
         integer, dimension(nSnps) :: individualGenotype
+        integer :: haplotypeFile, dosageFile, paramaterFile
+
         integer :: i, j, tmp
 
 
         print *, "Writting outputs"
+
+        open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // "singleLocusHaplotypes.txt", status="replace")
+        open(newunit = dosageFile, FILE = trim(inputParams%prefix) // "singleLocusGenotypes.txt", status="replace")
+        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // "paramaterEstimates-single.txt", status="replace")
 
         ! write(paramaterFile, '(a)') "maf ", "gError "
         do i = 1, nSnps
@@ -1596,7 +1543,7 @@ module AlphaMLPModule
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
         print *, "row format", rowfmt
         do i = 1, nAnimals
-            tmp = outputFile
+            tmp = haplotypeFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
@@ -1611,7 +1558,7 @@ module AlphaMLPModule
         ! enddo
         do i = 1, nAnimals
             ! write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
-            write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+            write(dosageFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
         enddo
       
 
