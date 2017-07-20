@@ -71,12 +71,10 @@ endif(${USE_HDF5})
 # are to your liking.
 INCLUDE(${CMAKE_MODULE_PATH}/SetFortranFlags.cmake)
 SET(SRCAH ./alphahouse/src/)
-SET(SRCALPHAIMPUTE ./alphaimpute/src/)
 # Have the .mod files placed in the OBJ folder
 SET(CMAKE_Fortran_MODULE_DIRECTORY ${OBJ})
 
 
-ADD_SUBDIRECTORY(${SRCALPHAIMPUTE} ${OBJ}/AI)
 ADD_SUBDIRECTORY(${SRCAH} ${OBJ}/AH)
 
 
