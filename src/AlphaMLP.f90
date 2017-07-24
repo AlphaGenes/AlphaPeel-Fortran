@@ -311,7 +311,7 @@ module AlphaMLPModule
             call markerEstimates%setPenetranceFromSequence()
         endif
 
-
+        ! print *, markerEstimates%penetrance
         ! print *, markerEstimates%penetrance(:, 1:5)
         !Make sure this is set from a file.
         call buildSegregationTraceTensor(markerEstimates)
@@ -780,7 +780,9 @@ module AlphaMLPModule
         if (.not. inputParams%isSequence) then 
             call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)     
         else 
-            call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, inputParams%nGenotypedAnimals)
+            print *, "reading sequence data"
+            call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)
+            print *, "finished reading sequence"
         endif
         ! else
             ! ! Init pedigree with format of genotype file
