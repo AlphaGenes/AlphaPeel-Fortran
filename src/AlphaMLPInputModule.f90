@@ -271,16 +271,17 @@
         
         ! end subroutine readGenotypes
 
-        subroutine readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
+        subroutine readSegregationFile(inputParams, segregationEstimates, segregationOffset, mapIndexes, mapDistance, pedigree)
             use PedigreeModule
             use ConstantModule, only : IDLENGTH
-            real(kind=real64), dimension(:,:,:), allocatable, intent(inout) :: segregationEstimates    
+            real(kind=real64), dimension(:,:,:), allocatable, intent(inout) :: segregationEstimates 
+            integer, intent(inout) :: segregationOffset  
             real(kind=real64), dimension(:,:), allocatable :: tmpSegregation    
             integer, dimension(:, :), allocatable :: mapIndexes
             real(kind=real64), dimension(:), allocatable :: mapDistance
             type(PedigreeHolder) , intent(inout) :: pedigree
 
-            integer :: i, unit, numLDSnps
+            integer :: i, unit, numLDSnps, firstLD, lastLD
             real(kind=real64) :: normalizationConstant
             type(AlphaMLPInput) :: inputParams
             character(len=IDLENGTH) :: seqid 
@@ -302,9 +303,11 @@
             print *, size(mapIndexes)
             print *, size(mapDistance)
             numLDSnps = maxval(mapIndexes)
+            firstLD = mapIndexes(1, inputParams%startsnp)
+            lastLD = mapIndexes(2, inputParams%endsnp)
+            segregationOffset = firstLD - 1 !this way if the first snp is 1, the offset is 0
 
-            ! allocate(segregationEstimates(4, numLDSnps, inputParams%nGenotypedAnimals))
-            allocate(segregationEstimates(4, numLDSnps, pedigree%pedigreeSize))
+            allocate(segregationEstimates(4, max(lastLD-firstLD + 1, 1) , pedigree%pedigreeSize))
             allocate(tmpSegregation(4, numLDSnps))
 
             close(unit)
@@ -321,7 +324,7 @@
                 tmpID = pedigree%dictionary%getValue(seqid)
 
                 if (tmpID /= DICT_NULL) then
-                    segregationEstimates(:,:,tmpID) = tmpSegregation
+                    segregationEstimates(:,:,tmpID) = tmpSegregation(:, firstLD:lastLD)
                 else
                     print *, "Unrecognized animal", seqid
                 endif
@@ -330,7 +333,11 @@
             normalizationConstant = .000001
             segregationEstimates = (1-normalizationConstant) * segregationEstimates + normalizationConstant
             print *, "read finished"
-            
+            print *, "Seg dimension", size(segregationEstimates,1), size(segregationEstimates,2), size(segregationEstimates, 3)
+            print *, "Snp Info:", firstLD, lastLD, segregationOffset
+
+
+
         end subroutine
 
         ! subroutine readSequence(input, pedigree, sequenceData)

@@ -179,7 +179,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(nSnps) :: markerError, maf
         real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
         real(kind=real64), dimension(:,:), allocatable:: markerSegregation
-        
+        integer :: segregationOffset, prevSnpSegID, nextSnpSegID
         allocate(outputHaplotypes(nHaplotypes, nSnps, nAnimals))
         allocate(outputDosages(nSnps, nAnimals))
 
@@ -188,9 +188,9 @@ module AlphaMLPModule
         
         print *, "Running in single locus peeling mode"
         if(inputParams%segFile .ne. "No seg") then 
-            call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
+            call readSegregationFile(inputParams, segregationEstimates, segregationOffset, mapIndexes, mapDistance, pedigree)
         endif      
-
+        
         !!$omp parallel do &
  !      !$omp default(shared) &
  !      !$omp private(i, markerSegregation, markerEstimates)
@@ -204,8 +204,12 @@ module AlphaMLPModule
 
             if(inputParams%segFile .ne. "No seg") then 
                 !Get the estimate midway between the two markers. 
-                markerSegregation = (1-mapDistance(i))*segregationEstimates(:,mapIndexes(1, snpID),:) + &
-                                            mapDistance(i)*segregationEstimates(:,mapIndexes(2, snpID),:) 
+
+                prevSnpSegID = mapIndexes(1, snpID) - segregationOffset 
+                nextSnpSegID = mapIndexes(2, snpID) - segregationOffset
+                ! print *, "SNPS: ", prevSnpSegID, nextSnpSegID, segregationOffset
+                markerSegregation = (1-mapDistance(i))*segregationEstimates(:,prevSnpSegID,:) + &
+                                            mapDistance(i)*segregationEstimates(:,nextSnpSegID,:) 
 
                 ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
                 markerEstimates%fullSegregation = markerSegregation
