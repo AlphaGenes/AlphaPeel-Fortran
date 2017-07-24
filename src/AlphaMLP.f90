@@ -185,6 +185,8 @@ module AlphaMLPModule
 
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
+        
+        print *, "Running in single locus peeling mode"
         if(inputParams%segFile .ne. "No seg") then 
             call readSegregationFile(inputParams, segregationEstimates, mapIndexes, mapDistance, pedigree)
         endif      
@@ -194,6 +196,7 @@ module AlphaMLPModule
  !      !$omp private(i, markerSegregation, markerEstimates)
         ! do i = inputParams%startSnp, inputParams%endSnp
         do i = 1, nSnps
+            print *, "Running", i
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
             snpID = inputParams%startSnp + i - 1
@@ -236,9 +239,11 @@ module AlphaMLPModule
         integer :: i, nCycles, cycleIndex
         logical :: converged
 
+        print *, "Running in multi locus peeling mode"
+
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            ! print *, "Allocating ", i
+            print *, "Allocating ", i
             call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
         enddo
 
