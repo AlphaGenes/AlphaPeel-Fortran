@@ -254,6 +254,7 @@ module globalGP
 
             error = this%genotypingErrorRate
             seq = pedigree%getSequenceAsArrayWithMissing(this%index)
+
             ref = seq(:, 1)
             alt = seq(:, 2)
             p = log(1-error)
@@ -265,6 +266,15 @@ module globalGP
             this%penetrance(3, :) = pf*ref + pf*alt
             this%penetrance(4, :) = q*ref + p*alt
 
+            ! print *, "Index", this%index, seq(4879, 1), seq(4879, 2)
+
+            ! block
+            !     integer :: i
+            !     print *, "Hello world", size(ref)
+            !     do i = 1, size(ref)
+            !         if(ref(i) + alt(i) > 5) print *, i, pedigree%pedigree(i)%originalID, ref(i), alt(i), this%penetrance(:, i)
+            !     enddo
+            ! endblock
             !Maybe use this as a second error measure for sequence.
 
             ! if(markerEstimates%postHMM .and. allocated(markerEstimates%hmmEstimate)) then
@@ -272,7 +282,7 @@ module globalGP
             !     call gemm(genotypesToHaplotypes(:,0:2), markerEstimates%hmmEstimate, tmpVect)
             !     markerEstimates%penetrance(:, pseudoFounders) = log(tmpVect)
             ! endif
-
+            
 
         end subroutine
 
@@ -338,9 +348,9 @@ module globalGP
             reducedHaplotypes(1,:) = haplotypes(1,:) 
             reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
             reducedHaplotypes(3,:) = haplotypes(4,:) 
-
-            nChanges = 2 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
-            nObservations = 4 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
+            ! print *, "reducedHaplotypes", reducedHaplotypes(:, 20)
+            nChanges = .001 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
+            nObservations = 1 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
 
             observedChangeRate = nChanges/nObservations
             ! currentErrorEstimator => this%genotypingErrorEstimator

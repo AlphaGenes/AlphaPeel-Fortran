@@ -195,13 +195,23 @@ module AlphaMLPModule
  !      !$omp default(shared) &
  !      !$omp private(i, markerSegregation, markerEstimates)
         ! do i = inputParams%startSnp, inputParams%endSnp
+        ! block
+        !     integer, dimension(:,:), allocatable :: seq
+        !     integer, dimension(:), allocatable :: ref, alt
+        !     do i = 1, nSnps
+        !         seq = pedigree%getSequenceAsArrayWithMissing(i)
+        !         print *, i, seq(4879, 1), seq(4879, 2)
+        !     enddo
+        ! endblock
+        ! stop
+
         do i = 1, nSnps
-            print *, "Running", i
             if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
             snpID = inputParams%startSnp + i - 1
-            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, snpID)
-
+            print *, "ID, SNP", i, snpID
+            !Note: We want the SNP by order in which it is loaded in, not the snp id
+            call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i) 
             if(inputParams%segFile .ne. "No seg") then 
                 !Get the estimate midway between the two markers. 
 
@@ -305,11 +315,6 @@ module AlphaMLPModule
         call markerEstimates%allocateMarkerVariables(nHaplotypes, nAnimals, nMatingPairs)
         markerEstimates%currentSegregationEstimate = markerEstimates%fullSegregation
         !Setup Penetrance
-        if (.not. inputParams%isSequence) then 
-            call markerEstimates%setPenetranceFromGenotypes()
-        else 
-            call markerEstimates%setPenetranceFromSequence()
-        endif
 
         ! print *, markerEstimates%penetrance
         ! print *, markerEstimates%penetrance(:, 1:5)
@@ -319,8 +324,17 @@ module AlphaMLPModule
         iteration = 0
         converged = .false.
         do while (.not. converged .and. iteration < maxIteration)
+            ! print *, "Running iteration", iteration
             iteration = iteration + 1
             !Create Anterior
+            !Reset penetrance to account for new error rate.
+            if (.not. inputParams%isSequence) then 
+                call markerEstimates%setPenetranceFromGenotypes()
+            else 
+                call markerEstimates%setPenetranceFromSequence()
+            endif
+
+
             call markerEstimates%setAnterior(markerEstimates%maf)
 
             call performPeeling(markerEstimates, doUpdateSegregation = .false.)
@@ -337,6 +351,7 @@ module AlphaMLPModule
             converged = markerEstimates%estimatedError < .000001
 
         enddo
+        ! print *, "Finished after", iteration
 
 
     end subroutine
