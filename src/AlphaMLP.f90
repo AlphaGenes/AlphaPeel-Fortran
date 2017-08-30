@@ -55,51 +55,54 @@ module AlphaMLPModule
     !
     !> @date       Febuary 7, 2016
     !---------------------------------------------------------------------------
-    ! subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
+    subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
 
-    !     use globalGP, only :pedigree, nsnps
+        use globalGP, only :pedigree, nsnps
         
-    !     integer, intent(in) :: startSnp, endSnp
-    !     integer :: i, j
-    !     type(PedigreeHolder) :: ped
-    !     real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
-    !     real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
-    !     type(AlphaMLPInput) :: inputParams
-    !     integer :: nHaplotypes
+        integer, intent(in) :: startSnp, endSnp
+        integer :: i, j
+        type(PedigreeHolder) :: ped
+        real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
+        real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
+        type(AlphaMLPInput) :: inputParams
+        integer :: nHaplotypes
 
-    !     type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
+        type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
 
-    !     pedigree = ped
-    !     nHaplotypes = 4
+        pedigree = ped
+        nHaplotypes = 4
 
        
 
-    !     if (.not. allocated(AlphaMLPOutput)) then
-    !         allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
-    !     endif
-    !     call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
-    !     inputParams = AlphaMLPInput(startSnp,endSnp)
+        if (.not. allocated(AlphaMLPOutput)) then
+            allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
+        endif
+        call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
+        inputParams = AlphaMLPInput(startSnp,endSnp,"single",.true.)
         
-    !     call setupPhaseChildOfFounders()
+        call setupPhaseChildOfFounders()
         
-    !     call setupTraceTensor
-    !     nSnps = inputParams%endSnp-inputParams%startSnp+1
-    !     nSnpsAll = inputParams%nSnp
-    !     nAnimals = pedigree%pedigreeSize
-    !     founders = pedigree%founders%convertToArrayIDs()
+        call setupTraceTensor
+        nSnps = inputParams%endSnp-inputParams%startSnp+1
+        nSnpsAll = inputParams%nSnp
+        nAnimals = pedigree%pedigreeSize
+        founders = pedigree%founders%convertToArrayIDs()
 
 
-    !     call runMultiLocusAlphaMLP(currentPeelingEstimates)
-    !     do i = startSnp, endSnp
-    !         do j = 1, 4
-    !             AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
-    !         enddo
-    !         maf(i) = currentPeelingEstimates(i)%maf
-    !     enddo
+        call runMultiLocusAlphaMLP(currentPeelingEstimates)
+        do i = startSnp, endSnp
+            do j = 1, 4
+                AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
+            enddo
+            maf(i) = currentPeelingEstimates(i)%maf
+        enddo
 
-    !     deallocate(currentPeelingEstimates)
+        deallocate(currentPeelingEstimates)
 
-    ! end subroutine runAlphaMLPAlphaImpute
+    end subroutine runAlphaMLPAlphaImpute
+
+
+
 
     !---------------------------------------------------------------------------
     ! DESCRIPTION:

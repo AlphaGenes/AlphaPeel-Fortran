@@ -54,7 +54,7 @@
 
         module procedure initFromFile
         ! module procedure initFromParams
-        ! module procedure initFromSnps
+        module procedure initFromSnps
     end interface AlphaMLPInput
     contains
 
@@ -92,19 +92,36 @@
         !> @date    Febuary 08, 2016
         !> @return AlphaMLPInput of info for spec file
         !---------------------------------------------------------------------------
-        ! function initFromSnps(startSnp,endSnp) result(res)
+        function initFromSnps(startSnp,endSnp, runtype,isSeq) result(res)
 
-        !     integer,intent(in) :: startSnp
-        !     integer,intent(in) :: endSnp
+            integer,intent(in) :: startSnp
+            integer,intent(in) :: endSnp
 
-        !     type(AlphaMLPInput) :: res
-
-
-        !     res%startSnp = startSnp
-        !     res%endSnp = endSnp
+            type(AlphaMLPInput) :: res
+            character(len=*), intent(in ) :: runType
+            logical, intent(in) :: isSeq
 
 
-        ! end function initFromSnps
+            res%startSnp = startSnp
+            res%endSnp = endSnp
+             res%nGenotypedAnimals = 0
+            res%nSnp = 0
+            res%startSnp = -1
+            res%endSnp = -1
+
+            
+            res%runType = runtype !< should be single or multi
+
+            res%isSequence = isSeq
+
+            res%nCycles = 10
+
+            res%mapFile = "No map"
+            res%segFile = "No seg"
+
+
+
+        end function initFromSnps
 
         
                 !---------------------------------------------------------------------------
