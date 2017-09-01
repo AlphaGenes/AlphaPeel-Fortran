@@ -101,7 +101,6 @@
             character(len=*), intent(in ) :: runType
             logical, intent(in) :: isSeq
 
-
             res%startSnp = startSnp
             res%endSnp = endSnp
              res%nGenotypedAnimals = 0
@@ -118,7 +117,6 @@
 
             res%mapFile = "No map"
             res%segFile = "No seg"
-
 
 
         end function initFromSnps
@@ -156,7 +154,7 @@
             res%prefix = ""
             res%pedFile = "No Pedigree"
             res%runType = "multi"
-
+            res%segFile = "No seg"
             res%isSequence = .false.
             res%sequenceFile = ""
 

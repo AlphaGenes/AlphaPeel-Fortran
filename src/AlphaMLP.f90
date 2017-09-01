@@ -57,31 +57,28 @@ module AlphaMLPModule
     !---------------------------------------------------------------------------
     subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
 
-        use globalGP, only :pedigree, nsnps
+        use globalGP, only :pedigree, nsnps, inputParams
         
         integer, intent(in) :: startSnp, endSnp
         integer :: i, j
-        type(PedigreeHolder) :: ped
+        type(PedigreeHolder) ,target:: ped
         real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
         real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
-        type(AlphaMLPInput) :: inputParams
         integer :: nHaplotypes
 
-        type(peelingEstimates), dimension(:), pointer:: currentPeelingEstimates
 
-        pedigree = ped
+        pedigree => ped
         nHaplotypes = 4
 
        
 
-        if (.not. allocated(AlphaMLPOutput)) then
-            allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
-        endif
+        ! if (.not. allocated(AlphaMLPOutput)) then
+        !     allocate(AlphaMLPOutput(pedigree%pedigreesize, startSnp:endSnp, 4))
+        ! endif
         call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
         inputParams = AlphaMLPInput(startSnp,endSnp,"single",.true.)
         
         call setupPhaseChildOfFounders()
-        
         call setupTraceTensor
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         nSnpsAll = inputParams%nSnp
@@ -89,15 +86,17 @@ module AlphaMLPModule
         founders = pedigree%founders%convertToArrayIDs()
 
 
-        call runMultiLocusAlphaMLP(currentPeelingEstimates)
-        do i = startSnp, endSnp
-            do j = 1, 4
-                AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
-            enddo
-            maf(i) = currentPeelingEstimates(i)%maf
-        enddo
 
-        deallocate(currentPeelingEstimates)
+        if(inputParams%runType == "single") call runSingleLocus(AlphaMLPOutput, maf,output=.false. )
+        if(inputParams%runType == "multi") call runIndependentMultiLocus()
+        ! do i = startSnp, endSnp
+        !     do j = 1, 4
+        !         AlphaMLPOutput(:, i, j) =  currentPeelingEstimates(i)%haplotypeEstimates(j,:)
+        !     enddo
+        !     maf(i-inputParams%startSnp+1) = currentPeelingEstimates(i-inputParams%startSnp+1)%maf
+        ! enddo
+
+        ! deallocate(currentPeelingEstimates)
 
     end subroutine runAlphaMLPAlphaImpute
 
@@ -119,6 +118,8 @@ module AlphaMLPModule
         use globalGP, only: nSnps, sequenceData, inputParams
         implicit none
         character(len=4096) :: SpecFile
+        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
+        real(kind=real64), dimension(:), allocatable :: maf
 
         if (Command_Argument_Count() > 0) then
             call Get_Command_Argument(1,SpecFile)
@@ -150,7 +151,7 @@ module AlphaMLPModule
         ! call printTrace(buildTraceTensor([1D0,0D0,0D0,.0D0]))
 
 
-        if(inputParams%runType == "single") call runIndependentSingleLocus()
+        if(inputParams%runType == "single") call runSingleLocus(outputHaplotypes, maf ,output=.true.)
         if(inputParams%runType == "multi") call runIndependentMultiLocus()
 
     end subroutine runAlphaMLPIndependently
@@ -170,49 +171,44 @@ module AlphaMLPModule
 
     end subroutine
 
-    subroutine runIndependentSingleLocus()
+
+
+    
+
+    subroutine runSingleLocus(outputHaplotypes, maf, output)
         use globalGP, only: nSnps, inputParams, mapIndexes, mapDistance
         implicit none
         integer :: i, snpID
         type(peelingEstimates), pointer :: markerEstimates
+        logical, optional :: output
         integer(kind=1), dimension(:), allocatable :: tmpGenotypes
         real(kind=real64), dimension(:,:), allocatable:: bayesianProduct
-        real(kind=real64), dimension(:,:,:), pointer:: outputHaplotypes
+        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
         real(kind=real64), dimension(:,:), pointer:: outputDosages
-        real(kind=real64), dimension(nSnps) :: markerError, maf
-        real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
+        real(kind=real64), dimension(nSnps) :: markerError
+        real(kind=real64), dimension(:), allocatable :: maf
+    real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
         real(kind=real64), dimension(:,:), allocatable:: markerSegregation
         integer :: segregationOffset, prevSnpSegID, nextSnpSegID
+        
         allocate(outputHaplotypes(nHaplotypes, nSnps, nAnimals))
         allocate(outputDosages(nSnps, nAnimals))
 
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
-        
+        allocate(maf(nsnps))
         print *, "Running in single locus peeling mode"
         if(inputParams%segFile .ne. "No seg") then 
             call readSegregationFile(inputParams, segregationEstimates, segregationOffset, mapIndexes, mapDistance, pedigree)
         endif      
         
-        !!$omp parallel do &
- !      !$omp default(shared) &
- !      !$omp private(i, markerSegregation, markerEstimates)
-        ! do i = inputParams%startSnp, inputParams%endSnp
-        ! block
-        !     integer, dimension(:,:), allocatable :: seq
-        !     integer, dimension(:), allocatable :: ref, alt
-        !     do i = 1, nSnps
-        !         seq = pedigree%getSequenceAsArrayWithMissing(i)
-        !         print *, i, seq(4879, 1), seq(4879, 2)
-        !     enddo
-        ! endblock
-        ! stop
 
+        !$omp parallel do &
+        !$omp default(shared) & 
+        !$omp private(i, snpID, markerEstimates,prevSnpSegID,nextSnpSegID,markerSegregation)
         do i = 1, nSnps
-            if(mod(i,100) == 0) print *, "index", i
             allocate(markerEstimates)
             snpID = inputParams%startSnp + i - 1
-            print *, "ID, SNP", i, snpID
             !Note: We want the SNP by order in which it is loaded in, not the snp id
             call markerEstimates%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, i) 
             if(inputParams%segFile .ne. "No seg") then 
@@ -240,12 +236,16 @@ module AlphaMLPModule
             call markerEstimates%deallocatePeelingEstimates()
             deallocate(markerEstimates)
         enddo
-   !    !$omp end parallel do
-        call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
+        !$omp end parallel do
 
-        deallocate(outputHaplotypes)
-        deallocate(outputDosages)
-    end subroutine
+        if (output) then
+            call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
+        endif
+
+
+        ! deallocate(outputHaplotypes)
+        ! deallocate(outputDosages)
+    end subroutine runSingleLocus
 
     ! Two subroutines below for running the HMM.
 
@@ -802,30 +802,6 @@ module AlphaMLPModule
             call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)
             print *, "finished reading sequence"
         endif
-        ! else
-            ! ! Init pedigree with format of genotype file
-            ! ! assume old pedigree file
-            ! pedigree = PedigreeHolder(inputParams%inputFile, nsnps=nSnps)
-            ! if (.not. inputParams%isSequence) then
-            !     call readGenotypes(inputParams, pedigree)
-            ! else 
-            !     call readSequence(inputParams, pedigree, sequenceData)
-            ! endif
-        ! endif
-
-        ! block
-        !     integer :: tmp, i
-        !     character(LEN=20) :: rowfmt
-        !     open(newunit = tmp, FILE = "sequenceReadIn.txt", status="replace")
-
-        !     WRITE(rowfmt,'(A,I9,A)') '(a,',700010,'f10.4)'
-        !     do i = 1, pedigree%pedigreeSize
-        !         print *, i, pedigree%pedigree(i)%originalID
-        !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID, pedigree%pedigree(i)%referAllele
-        !         write(tmp, rowfmt) pedigree%pedigree(i)%originalID,  pedigree%pedigree(i)%alterAllele
-        !     enddo
-        !     close(tmp)
-        ! end block
 
         print *, "Pedigree and genotypes loaded"
         nAnimals = pedigree%pedigreeSize
@@ -1469,7 +1445,7 @@ module AlphaMLPModule
         implicit none
         type(peelingEstimates), pointer :: markerEstimates
         type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
-        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
+        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
         real(kind=real64), dimension(:,:), allocatable :: combinedGenotypes
         integer, dimension(nSnps) :: individualGenotype
         real(kind=real64), dimension(:), allocatable :: thresholds
@@ -1553,7 +1529,7 @@ module AlphaMLPModule
     subroutine writeOutputsToFileSingleLocus(combinedHaplotypes, combinedGenotypes, markerError, maf)
         use globalGP
         implicit none
-        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
+        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
         real(kind=real64), dimension(:,:), pointer :: combinedGenotypes
         real(kind=real64), dimension(:), intent(inout) :: markerError, maf
         real(kind=real64), dimension(:), allocatable :: thresholds
@@ -1613,7 +1589,7 @@ module AlphaMLPModule
     subroutine callAlleles(threshold, combinedHaplotypes) 
         use globalGP
         implicit none
-        real(kind=real64), dimension(:,:,:), pointer :: combinedHaplotypes
+        real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
         real(kind=real64) :: threshold
         CHARACTER(LEN=128) :: rowfmt, fileName
         integer, dimension(nSnps) :: individualGenotype

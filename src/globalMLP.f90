@@ -25,7 +25,7 @@ module globalGP
 
     real(kind=real64), dimension(4), parameter :: haplotypesToGenotypes = (/0, 1, 1, 2/)
 
-    type(PedigreeHolder) :: pedigree
+    type(PedigreeHolder), pointer :: pedigree
     type(IndividualLinkedList), dimension(:), allocatable :: offspringList
     ! type(peelingEstimates), dimension(:), pointer :: currentPeelingEstimates
     
