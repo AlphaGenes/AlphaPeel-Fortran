@@ -104,10 +104,7 @@
             res%startSnp = startSnp
             res%endSnp = endSnp
              res%nGenotypedAnimals = 0
-            res%nSnp = 0
-            res%startSnp = -1
-            res%endSnp = -1
-
+            res%nSnp = endSnp-startSnp +1
             
             res%runType = runtype !< should be single or multi
 

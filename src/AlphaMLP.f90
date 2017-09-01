@@ -65,8 +65,6 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:,:), allocatable, intent(out) :: AlphaMLPOutput !< output 3 dimensional array as requeuired by alphaimpute. 1:pedigree%pedigreeSize, nSnps, nHaplotypes
         real(kind=real64),allocatable,dimension (:), intent(out) :: Maf !< double vector containing MaF for each Snp
         integer :: nHaplotypes
-
-
         pedigree => ped
         nHaplotypes = 4
 
@@ -81,6 +79,7 @@ module AlphaMLPModule
         call setupPhaseChildOfFounders()
         call setupTraceTensor
         nSnps = inputParams%endSnp-inputParams%startSnp+1
+
         nSnpsAll = inputParams%nSnp
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
