@@ -78,6 +78,7 @@ module AlphaMLPModule
         
         call setupPhaseChildOfFounders()
         call setupTraceTensor
+        call setupGenerations()
         nSnps = inputParams%endSnp-inputParams%startSnp+1
 
         nSnpsAll = inputParams%nSnp
