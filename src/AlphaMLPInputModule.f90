@@ -159,7 +159,7 @@
 
             res%mapFile = "No map"
             res%segFile = "No seg"
-
+            print *, "specfile", specfile
             open(newunit=unit, file=SpecFile, action="read", status="old")
             IOStatus = 0
             READFILE: do while (IOStatus==0)
