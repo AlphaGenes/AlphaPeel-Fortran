@@ -38,7 +38,8 @@
         integer :: startSnp
         integer :: endSnp
         integer :: nCycles
-        logical :: isSequence
+        logical :: isSequence, fixedError, fixedRecombination
+        real(kind=real64) :: errorRate, recombinationRate
         character(len=FILELENGTH) :: sequenceFile, pedFile, runtype
         character(len=FILELENGTH) :: mapFile, segFile, prefix
 
@@ -155,6 +156,12 @@
             res%isSequence = .false.
             res%sequenceFile = ""
 
+            fixedError = .false.
+            fixedRecombination = .false.
+
+            errorRate = -1
+            recombinationRate = -1
+            
             res%nCycles = 10
 
             res%mapFile = "No map"
@@ -216,6 +223,13 @@
 
                         case("ncycles")
                             read(second(1),*) res%nCycles
+
+                        case("errorrate")
+                            read(second(1),*) res%errorRate
+                            res%fixedError = .true.
+                        case("recombinationrate")
+                            read(second(1),*) res%recombinationRate
+                            res%fixedRecombination = .true.
 
                         case("mapfile")
                             write(res%mapFile, "(A)") trim(second(1))
