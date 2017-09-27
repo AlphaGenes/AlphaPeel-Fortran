@@ -289,17 +289,15 @@ module AlphaMLPModule
             enddo
 
             ! ! Join Pass                
-         
-            if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
-            cycleIndex = cycleIndex + 1
+            ! print *, "cycle ", cycleIndex, ", Join "
+            ! do i = nSnps, 1, -1
+            !     call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
+            !     if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+            ! enddo
+            ! if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
+            ! cycleIndex = cycleIndex + 1
             ! call updateAllRecombinationRates(currentPeelingEstimates)
         enddo
-
-        ! print *, "cycle ", cycleIndex, ", Final Join "
-        ! do i = nSnps, 1, -1
-        !     call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2, .true.)
-        !     if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Final Join ", i
-        ! enddo
     
     end subroutine
 
@@ -474,7 +472,7 @@ module AlphaMLPModule
 
             if(runType == 1) markerEstimates%transmitForward(:,i) = markerEstimates%transmitForward(:,i)/sum(markerEstimates%transmitForward(:,i))
             if(runType == 2) markerEstimates%transmitBackward(:,i) = markerEstimates%transmitBackward(:,i)/sum(markerEstimates%transmitBackward(:,i))
-            markerEstimates%fullSegregation(:,i) = markerEstimates%fullSegregation(:,i)/sum(markerEstimates%fullSegregation(:,i))
+            if(runType == 3) markerEstimates%fullSegregation(:,i) = markerEstimates%fullSegregation(:,i)/sum(markerEstimates%fullSegregation(:,i))
         enddo
 
         !Save values and update Params
@@ -1366,11 +1364,10 @@ module AlphaMLPModule
         real(kind=real64) :: diagonalSum
         ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
         integer i, j, indexNumber, ind
-        
-        markerEstimates => currentPeelingEstimates(indexNumber)
         if(inputParams%fixedRecombination) then
             markerEstimates%recombinationRate = inputParams%recombinationRate
         else
+            markerEstimates => currentPeelingEstimates(indexNumber)
              !We update n to n+1 here.
             transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
 
