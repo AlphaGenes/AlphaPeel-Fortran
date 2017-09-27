@@ -187,7 +187,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:), pointer:: outputDosages
         real(kind=real64), dimension(nSnps) :: markerError
         real(kind=real64), dimension(:), allocatable :: maf
-        real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
+    real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
         real(kind=real64), dimension(:,:), allocatable:: markerSegregation
         integer :: segregationOffset, prevSnpSegID, nextSnpSegID
         
@@ -260,7 +260,7 @@ module AlphaMLPModule
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            ! print *, "Allocating ", i
+            print *, "Allocating ", i
             call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
         enddo
 
@@ -276,26 +276,26 @@ module AlphaMLPModule
         do while(cycleIndex < nCycles .and. .not. converged)
             ! Forward Pass
             print *, "cycle ", cycleIndex, ", Forward "
-            do i = 1, nSnps
+            do i = 2, nSnps
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
             enddo
             
             ! Backward Pass
             print *, "cycle ", cycleIndex, ", Backward "
-            do i = nSnps, 1, -1
-                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2, .true.)
+            do i = nSnps-1, 1, -1
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
-            ! ! Join Pass                
-            ! print *, "cycle ", cycleIndex, ", Join "
-            ! do i = nSnps, 1, -1
-            !     call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
-            !     if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
-            ! enddo
-            ! if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
-            ! cycleIndex = cycleIndex + 1
+            ! Join Pass                
+            print *, "cycle ", cycleIndex, ", Join "
+            do i = nSnps, 1, -1
+                call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+            enddo
+            if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
+            cycleIndex = cycleIndex + 1
             ! call updateAllRecombinationRates(currentPeelingEstimates)
         enddo
     
@@ -450,22 +450,21 @@ module AlphaMLPModule
         usePhaseOverride = .true.
         if(usePhaseOverride) then
             do j=1, size(phaseChildren)
-                if(phaseChildren(j) > 0) then
+                if(phaseChildren(j) > 1) then
                     overrideEstimate = phaseChildrenOverride(:,j) * markerEstimates%currentSegregationEstimate(:,phaseChildren(j))
                     markerEstimates%currentSegregationEstimate(:,phaseChildren(j)) = overrideEstimate
                 endif
             enddo
         endif
-        call buildSegregationTraceTensor(markerEstimates)
 
         call performPeeling(markerEstimates, doUpdateSegregation = .true.)
         
 
         !Now do post segregation updating.
         !Isn't this all currentSegregationEstimate -- yes, but it's saving it to different slots.
-        if(runType == 1) markerEstimates%transmitForward = markerEstimates%transmitForward * markerEstimates%pointSegregation
-        if(runType == 2) markerEstimates%transmitBackward = markerEstimates%transmitBackward * markerEstimates%pointSegregation
-        markerEstimates%fullSegregation = markerEstimates%currentSegregationEstimate
+        if(runType == 1) markerEstimates%transmitForward = markerEstimates%currentSegregationEstimate
+        if(runType == 2) markerEstimates%transmitBackward = markerEstimates%currentSegregationEstimate
+        if(runType == 3) markerEstimates%fullSegregation = markerEstimates%currentSegregationEstimate
 
         do i = 1, nAnimals            
             markerEstimates%pointSegregation(:,i) = markerEstimates%pointSegregation(:,i)/sum(markerEstimates%pointSegregation(:,i))
@@ -476,7 +475,7 @@ module AlphaMLPModule
         enddo
 
         !Save values and update Params
-        if(runType == 2) then
+        if(runType == 3) then
             logSum = markerEstimates%anterior + markerEstimates%posterior + markerEstimates%penetrance
             do i = 1, size(logSum, 2)
                 haplotypeEstimates(:,i) = lhtp(logSum(:,i))
@@ -494,7 +493,7 @@ module AlphaMLPModule
         endif
         
         if(updateParams) then
-            call updateRecombinationRate(currentPeelingEstimates, indexNumber)
+            call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
             ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
             if(.not. inputParams%isSequence) call markerEstimates%updateGenotypeErrorRates()
             if(inputParams%isSequence) call markerEstimates%updateSequenceErrorRates()
@@ -532,7 +531,17 @@ module AlphaMLPModule
 
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
-           
+            if(doUpdateSegregation) then
+                do j = 1, size(tmpFamilyList)
+                    fam = tmpFamilyList(j)        
+                    call updateSegregation(markerEstimates, fam)
+                enddo
+                markerEstimates%currentSegregationEstimate(:,childrenAtGeneration(i)%array) = &
+                                        markerEstimates%currentSegregationEstimate(:, childrenAtGeneration(i)%array) *&
+                                        markerEstimates%pointSegregation(:, childrenAtGeneration(i)%array)
+
+                call buildNewSegregationTensors(markerEstimates, childrenAtGeneration(i)%array)
+            endif
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)        
                 call peelUp(markerEstimates, fam)
@@ -551,22 +560,6 @@ module AlphaMLPModule
             enddo
 
         enddo 
-
-        if(doUpdateSegregation) then
-            do i = nGenerations, 1, -1
-                tmpFamilyList = familiesInGeneration(i)%array
-                do j = 1, size(tmpFamilyList)
-                    fam = tmpFamilyList(j)        
-                    call updateSegregation(markerEstimates, fam)
-                enddo
-                markerEstimates%currentSegregationEstimate(:,childrenAtGeneration(i)%array) = &
-                                        markerEstimates%currentSegregationEstimate(:, childrenAtGeneration(i)%array) *&
-                                        markerEstimates%pointSegregation(:, childrenAtGeneration(i)%array)
-
-                ! call buildNewSegregationTensors(markerEstimates, childrenAtGeneration(i)%array) !Not sure we need this...
-            
-            enddo
-        endif
     end subroutine
 
 
@@ -615,7 +608,7 @@ module AlphaMLPModule
     
         pjoint = 0
         call additiveOuterProduct(pmate, pfather, pjoint)
-        ! call additiveOuterProductSpread(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
         
         
         offspring = offspringList(fam)%convertToArrayIDs()
@@ -643,7 +636,7 @@ module AlphaMLPModule
 
 
     subroutine updateSegregation(markerEstimates, fam)
-        use globalGP, only: nHaplotypes, listOfParents, offspringList, traceTensorExp
+        use globalGP, only: nHaplotypes, listOfParents, offspringList
         use blas95
         implicit none
         type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
@@ -673,7 +666,7 @@ module AlphaMLPModule
         pmate = anterior(:, mate)+penetrance(:,mate)+posterior(:,mate)-damePosteriorMate(:,fam)
         pjoint = 0
         call additiveOuterProduct(pmate, pfather, pjoint)
-        ! call additiveOuterProductSpread(pmate, pfather, pjoint)
+        call additiveOuterProductSpread(pmate, pfather, pjoint)
 
         
         nChildren = offspringList(fam)%length
@@ -685,8 +678,8 @@ module AlphaMLPModule
         !MP
         do j=1, nChildren
             child = offspring(j)
-            temp => markerEstimates%currentSegregationTensors(:,:,:,child) !FLAG
-            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), traceTensorExp)
+            temp => markerEstimates%currentSegregationTensors(:,:,:,child)
+            childEstimate(:,:,j) = childTraceMultiply(penetrance(:, child)+posterior(:, child), temp)
             ! childEstimate(:,:,j) = childTraceMultiplyMKL(penetrance(:, child)+posterior(:, child), temp)
             pjoint = pjoint + childEstimate(:,:,j)
         enddo
@@ -703,7 +696,7 @@ module AlphaMLPModule
 
 
     subroutine peelUp(markerEstimates, fam)        
-        use globalGP, only: nHaplotypes, listOfParents, offspringList, traceTensorExp
+        use globalGP, only: nHaplotypes, listOfParents, offspringList
         use blas95
         implicit none
         type(PeelingEstimates), pointer, intent(inout) :: markerEstimates
@@ -736,8 +729,10 @@ module AlphaMLPModule
         do j=1, nChildren
             !May be able to pre-multiply this stuff together.
             child = offspring(j)
-            ! tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), markerEstimates%currentSegregationTensors(:,:,:,child))        
-            tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), traceTensorExp)        
+            ! call printTrace(markerEstimates%currentSegregationTensors(:,:,:,child))
+            tmp = childTraceMultiply(penetrance(:, child)+posterior(:, child), markerEstimates%currentSegregationTensors(:,:,:,child))
+            ! tmp = childTraceMultiplyMKL(penetrance(:, child) + posterior(:, child), childTrace)
+        
             pjoint = pjoint + tmp
            
         enddo
@@ -877,7 +872,7 @@ module AlphaMLPModule
     end subroutine
 
     subroutine setupPhaseChildOfFounders()
-        use globalGP, only: pedigree, founders, phaseChildren, isPhasedChild, useForRecombinations
+        use globalGP, only: pedigree, founders, phaseChildren, isPhasedChild
         use PedigreeModule
         use IndividualModule, only: Individual
         use IndividualHelperModule
@@ -896,9 +891,6 @@ module AlphaMLPModule
         allocate(phaseChildren(size(founders)))
         allocate(phaseChildrenOverride(4, size(founders)))
         allocate(isPhasedChild(nAnimals))
-        allocate(useForRecombinations(nAnimals))
-        useForRecombinations = 1
-
         allGenotypeDensity = pedigree%getGenotypePercentage()
         isPhasedChild = .false.
         do i = 1, size(founders)
@@ -921,12 +913,6 @@ module AlphaMLPModule
                 phaseChildrenOverride(:,i) = newArrayOptions(:, parent%gender)
                 deallocate(genotypeDensity)
             endif
-            !Knock out founders + children for recombination estimation -- they are weird in the context of AlphaPeel.
-            useForRecombinations(founder) = 0
-            do j = 1, parent%nOffs
-                useForRecombinations(children(j)%p%id) = 0
-            enddo
-
         enddo
 
     end subroutine
@@ -1104,37 +1090,26 @@ module AlphaMLPModule
         integer :: runType
         integer :: indexNumber
 
-        if(indexNumber > 1) then        
+        if(indexNumber > 1 .and. (runType == 1 .or. runType == 3)) then        
             previousSegTransmitted = 0
             previousSegregation(:, :) = currentPeelingEstimates(indexNumber-1)%transmitForward
             prevTransmissionMatrix = calculateSegregationTransmissionMatrix(currentPeelingEstimates(indexNumber-1)%recombinationRate)
             call gemm(prevTransmissionMatrix, previousSegregation, previousSegTransmitted)
-        ! else if(indexNumber == 1) then
-        !     previousSegTransmitted = 0
-        !     previousSegregation(:, :) = currentPeelingEstimates(indexNumber+1)%transmitBackward
-        !     prevTransmissionMatrix = calculateSegregationTransmissionMatrix(currentPeelingEstimates(indexNumber)%recombinationRate)
-        !     call gemm(prevTransmissionMatrix, previousSegregation, previousSegTransmitted)
         else 
             previousSegTransmitted = 1 
         endif
 
-        if(indexNumber < nSnps) then
+        if(indexNumber < nSnps .and. (runType == 2 .or. runType == 3)) then
             nextSegTransmitted = 0
             nextSegregation(:, :) = currentPeelingEstimates(indexNumber+1)%transmitBackward
             nextTransmissionMatrix = calculateSegregationTransmissionMatrix(currentPeelingEstimates(indexNumber)%recombinationRate)
             call gemm(nextTransmissionMatrix, nextSegregation, nextSegTransmitted)
-        ! else if(indexNumber == nSnps) then
-        !     nextSegTransmitted = 0
-        !     nextSegregation(:, :) = currentPeelingEstimates(indexNumber-1)%transmitForward
-        !     nextTransmissionMatrix = calculateSegregationTransmissionMatrix(currentPeelingEstimates(indexNumber-1)%recombinationRate)
-        !     call gemm(nextTransmissionMatrix, nextSegregation, nextSegTransmitted)
         else 
             nextSegTransmitted = 1 
         endif
 
         markerEstimates%currentSegregationEstimate = previousSegTransmitted * nextSegTransmitted
-        if(runType == 1) markerEstimates%transmitForward = previousSegTransmitted 
-        if(runType == 2) markerEstimates%transmitBackward = nextSegTransmitted
+
 
     end subroutine
     function reduceSegregationTensorMKL(childGenotypes, parentJointGenotypes) result(collapsedEstimate)
@@ -1350,11 +1325,11 @@ module AlphaMLPModule
     end subroutine
 
 
-    subroutine updateRecombinationRate(currentPeelingEstimates, indexNumber)
-        use globalGP, only:  nAnimals, useForRecombinations
+    subroutine updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
+        use globalGP, only:  nAnimals
         use fixedPointModule
         implicit none
-        type(peelingEstimates), pointer :: markerEstimates
+        type(peelingEstimates) :: markerEstimates
         type(PeelingEstimates), dimension(:), pointer :: currentPeelingEstimates
 
         real(kind=real64), dimension(4,nAnimals) :: zi, plusZeroSegregation, plusOneSegregation
@@ -1364,52 +1339,105 @@ module AlphaMLPModule
         real(kind=real64) :: diagonalSum
         ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
         integer i, j, indexNumber, ind
-        if(inputParams%fixedRecombination) then
-            markerEstimates%recombinationRate = inputParams%recombinationRate
-        else
-            markerEstimates => currentPeelingEstimates(indexNumber)
-             !We update n to n+1 here.
-            transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
+
+        !We update n to n+1 here.
+        transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
 
 
-            nChanges = 1d0/nSnpsAll
-            nObservations = 1.0
+        nChanges = 1d0/nSnpsAll
+        nObservations = 1.0
 
-            if(indexNumber < nSnps) then 
-                nObservations = nObservations
-                plusZeroSegregation = markerEstimates%fullSegregation
-                plusOneSegregation = currentPeelingEstimates(indexNumber+1)%fullSegregation
-                do ind = 1, nAnimals
-                    if(useForRecombinations(ind) == 1) then
-                        estimate = transmissionMatrix
-                        do j = 1, 4
-                            estimate(j, :) = estimate(j,:) * plusZeroSegregation(:, ind)
-                        enddo
-                        do j = 1, 4
-                            estimate(:,j) = estimate(:,j) * plusOneSegregation(:, ind)
-                        enddo
-                        estimate = estimate/sum(estimate)
-                        diagonalSum = 0
-                        do j = 1, 4
-                            diagonalSum = diagonalSum + estimate(j, j)
-                        enddo
-                        nObservations = nObservations + 1
-                        nChanges = nChanges + diagonalSum
-                    endif
+        if(indexNumber < nSnps) then 
+            nObservations = nObservations + nAnimals
+            plusZeroSegregation = markerEstimates%transmitForward
+            plusOneSegregation = currentPeelingEstimates(indexNumber+1)%transmitBackward
+            do ind = 1, nAnimals
+                estimate = transmissionMatrix
+                do j = 1, 4
+                    estimate(j, :) = estimate(j,:) * plusZeroSegregation(:, ind)
                 enddo
+                do j = 1, 4
+                    estimate(:,j) = estimate(:,j) * plusOneSegregation(:, ind)
+                enddo
+                estimate = estimate/sum(estimate)
+                diagonalSum = 0
+                do j = 1, 4
+                    diagonalSum = diagonalSum + estimate(j, j)
+                enddo
+                nChanges = nChanges + 1-diagonalSum
+            enddo
 
-            endif
-            observedChangeRate = 1-sqrt(nChanges/nObservations)
-            ! print *, "change rate", observedChangeRate
-
-            ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
-            ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
-            ! markerEstimates%recombinationRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
-            markerEstimates%recombinationRate = observedChangeRate
         endif
+        observedChangeRate = nChanges/nObservations
+        ! print *, "change rate", observedChangeRate
+
+        ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
+        ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
+        ! markerEstimates%recombinationRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
+        markerEstimates%recombinationRate = observedChangeRate
+    
 
     end subroutine
 
+
+
+    ! subroutine updateAllRecombinationRates(currentPeelingEstimates)
+    !     use globalGP, only:  nAnimals, nSnps
+    !     use fixedPointModule
+    !     implicit none
+    !     type(peelingEstimates), pointer :: markerEstimates
+    !     type(PeelingEstimates), dimension(:), pointer :: currentPeelingEstimates
+
+    !     real(kind=real64), dimension(4,nAnimals) :: zi, plusZeroSegregation, plusOneSegregation
+    !     real(kind=real64), dimension(4) :: normalizedEstimate
+    !     real(kind=real64), dimension(4,4) :: transmissionMatrix
+    !     real(kind=real64) :: nChanges, nObservations, observedChangeRate
+    !     ! type(fixedPointEstimator), pointer :: currentRecombinationEstimator
+    !     integer i, j, indexNumber
+
+    !     !We update n to n+1 here.
+    !     markerEstimates => currentPeelingEstimates(1)
+    !     print *, markerEstimates%recombinationRate
+
+
+    !     transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
+    !     print *, transmissionMatrix
+
+    !     nChanges = .01
+    !     nObservations = 1.0
+    !     do indexNumber = 1, nSnps-1
+    !         if(indexNumber < nSnps) then 
+    !             nObservations = nObservations + nAnimals
+    !             plusZeroSegregation = currentPeelingEstimates(indexNumber)%fullSegregation
+    !             plusOneSegregation = currentPeelingEstimates(indexNumber+1)%fullSegregation
+
+    !             zi = 0
+    !             do i = 1, nAnimals
+    !                 do j= 1, 4
+    !                     normalizedEstimate = plusZeroSegregation(:,i) * transmissionMatrix(:,j)
+    !                     normalizedEstimate = normalizedEstimate/sum(normalizedEstimate)
+    !                     zi(j, i) = zi(j, i) + plusOneSegregation(j,i) * (1-normalizedEstimate(j))
+    !                 enddo
+    !             enddo
+    !             nChanges = nChanges + sum(zi)
+    !         endif
+    !     enddo
+    !     ! print *, "obs", nChanges, nObservations
+    !     observedChangeRate = nChanges/nObservations
+    !     print *, indexNumber, " ", nChanges, " ", nObservations
+    !     print *, indexNumber, " ", observedChangeRate
+        
+    !     ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
+    !     ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
+    !     ! observedChangeRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
+
+    !     print *, "change rate", observedChangeRate
+
+    !     do indexNumber = 1, nSnps
+    !         currentPeelingEstimates(indexNumber)%recombinationRate = observedChangeRate
+    !     enddo
+
+    ! end subroutine
 
 
     subroutine writeOutputsToFileMultiLocus(currentPeelingEstimates)
@@ -1432,7 +1460,7 @@ module AlphaMLPModule
         open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
     
         print *, "Writting outputs"
-        write(paramaterFile, '(3a)') "maf ", "genotypeError ", "recombinationRate"
+        write(paramaterFile, '(a)') "maf ", "genotypeError ", "recombinationRate"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
             write(paramaterFile, '(3f12.7)') markerEstimates%maf, markerEstimates%genotypingErrorRate, markerEstimates%recombinationRate

@@ -15,8 +15,6 @@ module globalGP
     integer(kind=4) :: nHaplotypes = 4, nAnimals, nMatingPairs
     integer :: nSnps, nPseudoFounders, nSnpsAll
     integer, dimension(:), allocatable :: founders, phaseChildren, generations
-    integer, dimension(:), allocatable :: useForRecombinations
-
     integer, dimension(:, :), allocatable :: listOfParents
 
     real(kind=real64), dimension(:,:,:,:), pointer, CONTIGUOUS :: segregationTensor, segregationTensorParentsFirst
@@ -268,6 +266,24 @@ module globalGP
             this%penetrance(3, :) = pf*ref + pf*alt
             this%penetrance(4, :) = q*ref + p*alt
 
+            ! print *, "Index", this%index, seq(4879, 1), seq(4879, 2)
+
+            ! block
+            !     integer :: i
+            !     print *, "Hello world", size(ref)
+            !     do i = 1, size(ref)
+            !         if(ref(i) + alt(i) > 5) print *, i, pedigree%pedigree(i)%originalID, ref(i), alt(i), this%penetrance(:, i)
+            !     enddo
+            ! endblock
+            !Maybe use this as a second error measure for sequence.
+
+            ! if(markerEstimates%postHMM .and. allocated(markerEstimates%hmmEstimate)) then
+            !     allocate(tmpVect(4, nPseudoFounders))
+            !     call gemm(genotypesToHaplotypes(:,0:2), markerEstimates%hmmEstimate, tmpVect)
+            !     markerEstimates%penetrance(:, pseudoFounders) = log(tmpVect)
+            ! endif
+            
+
         end subroutine
 
         subroutine updateGenotypeErrorRates(this)
@@ -281,34 +297,31 @@ module globalGP
             real(kind=real64), dimension(3, 0:9) :: genotypesToHaplotypes
             real(kind=real64) :: nChanges, nObservations, observedChangeRate
             type(fixedPointEstimator), pointer :: currentErrorEstimator
-            if(inputParams%fixedError) then
-                this%genotypingErrorRate = inputParams%errorRate
-            else
-                genotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(this%index)
 
-                haplotypes = this%getHaplotypeEstimates()
-                genotypesToHaplotypes(:,0) = [1, 0, 0]
-                genotypesToHaplotypes(:,1) = [0, 1, 0]
-                genotypesToHaplotypes(:,2) = [0, 0, 1]
-                genotypesToHaplotypes(:,9) = [0, 0, 0]
+            genotypes = pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(this%index)
 
-                recodedGenotypes = genotypesToHaplotypes(:, genotypes)
+            haplotypes = this%getHaplotypeEstimates()
+            genotypesToHaplotypes(:,0) = [1, 0, 0]
+            genotypesToHaplotypes(:,1) = [0, 1, 0]
+            genotypesToHaplotypes(:,2) = [0, 0, 1]
+            genotypesToHaplotypes(:,9) = [0, 0, 0]
 
-                reducedHaplotypes(1,:) = haplotypes(1,:) 
-                reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
-                reducedHaplotypes(3,:) = haplotypes(4,:) 
+            recodedGenotypes = genotypesToHaplotypes(:, genotypes)
+
+            reducedHaplotypes(1,:) = haplotypes(1,:) 
+            reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
+            reducedHaplotypes(3,:) = haplotypes(4,:) 
 
 
-                zi = recodedGenotypes * (1-reducedHaplotypes)
+            zi = recodedGenotypes * (1-reducedHaplotypes)
 
-                nChanges = 0.05*2 + sum(zi)
-                nObservations = 1.0*2 + sum(recodedGenotypes)
-                observedChangeRate = nChanges/nObservations
-                ! currentErrorEstimator => this%genotypingErrorEstimator
-                ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
-                ! this%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
-                this%genotypingErrorRate = min(observedChangeRate, .05)
-            endif
+            nChanges = 0.05*2 + sum(zi)
+            nObservations = 1.0*2 + sum(recodedGenotypes)
+            observedChangeRate = nChanges/nObservations
+            ! currentErrorEstimator => this%genotypingErrorEstimator
+            ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
+            ! this%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+            this%genotypingErrorRate = min(observedChangeRate, .05)
         end subroutine
 
 
@@ -325,31 +338,27 @@ module globalGP
             real(kind=real64) :: nChanges, nObservations, observedChangeRate
             type(fixedPointEstimator), pointer :: currentErrorEstimator
           
-            if(inputParams%fixedError) then
-                this%genotypingErrorRate = inputParams%errorRate
-            else
-                seq = pedigree%getSequenceAsArrayWithMissing(this%index)
-                ref = seq(:, 1)
-                alt = seq(:, 2)
+            seq = pedigree%getSequenceAsArrayWithMissing(this%index)
+            ref = seq(:, 1)
+            alt = seq(:, 2)
 
-                haplotypes = this%haplotypeEstimates
-                totReads = ref + alt
+            haplotypes = this%haplotypeEstimates
+            totReads = ref + alt
 
-                reducedHaplotypes(1,:) = haplotypes(1,:) 
-                reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
-                reducedHaplotypes(3,:) = haplotypes(4,:) 
-                ! print *, "reducedHaplotypes", reducedHaplotypes(:, 20)
-                nChanges = .001 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
-                nObservations = 1 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
+            reducedHaplotypes(1,:) = haplotypes(1,:) 
+            reducedHaplotypes(2,:) = haplotypes(2,:) + haplotypes(3,:)
+            reducedHaplotypes(3,:) = haplotypes(4,:) 
+            ! print *, "reducedHaplotypes", reducedHaplotypes(:, 20)
+            nChanges = .001 + sum(alt*reducedHaplotypes(1, :) +  ref*reducedHaplotypes(3, :) )
+            nObservations = 1 + sum(totReads*reducedHaplotypes(1,:) + totReads*reducedHaplotypes(3,:))
 
-                observedChangeRate = nChanges/nObservations
-                ! currentErrorEstimator => this%genotypingErrorEstimator
-                ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
-                ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
-                ! print *, "obsChange", observedChangeRate
-                this%genotypingErrorRate = min(observedChangeRate, .01)
-                ! this%genotypingErrorRate = .01
-            endif
+            observedChangeRate = nChanges/nObservations
+            ! currentErrorEstimator => this%genotypingErrorEstimator
+            ! call currentErrorEstimator%addObservation(this%genotypingErrorRate, observedChangeRate)
+            ! markerEstimates%genotypingErrorRate = currentErrorEstimator%secantEstimate(isLogitIn=.true.)
+            ! print *, "obsChange", observedChangeRate
+            this%genotypingErrorRate = min(observedChangeRate, .01)
+            ! this%genotypingErrorRate = .01
         end subroutine
 
 
