@@ -275,6 +275,7 @@ module AlphaMLPModule
         converged = .false.
         do while(cycleIndex < nCycles .and. .not. converged)
             ! Forward Pass
+
             print *, "cycle ", cycleIndex, ", Forward "
             do i = 2, nSnps
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
@@ -290,13 +291,18 @@ module AlphaMLPModule
 
             ! Join Pass                
             print *, "cycle ", cycleIndex, ", Join "
+
+            !$OMP PARALLEL DO
             do i = nSnps, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
             enddo
+            !$OMP END PARALLEL DO
+
             if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
             cycleIndex = cycleIndex + 1
             ! call updateAllRecombinationRates(currentPeelingEstimates)
+
         enddo
     
     end subroutine
@@ -521,32 +527,50 @@ module AlphaMLPModule
         oldPosteriorSire = markerEstimates%sirePosteriorMate
         oldPosteriorDame = markerEstimates%damePosteriorMate
 
+
+    ! PEEL DOWN 
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
+            !$OMP PARALLEL DO DEFAULT(SHARED) &
+            !$OMP PRIVATE(fam,j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)        
                 call peelDown(markerEstimates, fam)
             enddo
+            !$OMP END PARALLEL DO
         enddo 
 
+
+! PEEL UP + SEGREGATION ESTIMATES
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
             if(doUpdateSegregation) then
+                !$OMP PARALLEL DO DEFAULT(SHARED) &
+                !$OMP PRIVATE(fam,j)
                 do j = 1, size(tmpFamilyList)
                     fam = tmpFamilyList(j)        
                     call updateSegregation(markerEstimates, fam)
                 enddo
+                !$OMP END PARALLEL DO
                 markerEstimates%currentSegregationEstimate(:,childrenAtGeneration(i)%array) = &
                                         markerEstimates%currentSegregationEstimate(:, childrenAtGeneration(i)%array) *&
                                         markerEstimates%pointSegregation(:, childrenAtGeneration(i)%array)
 
                 call buildNewSegregationTensors(markerEstimates, childrenAtGeneration(i)%array)
             endif
+            
+
+            !$OMP PARALLEL DO DEFAULT(SHARED) &
+            !$OMP PRIVATE(fam,j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)        
                 call peelUp(markerEstimates, fam)
             enddo
+            !$OMP END PARALLEL DO
 
+
+            !$OMP PARALLEL DO DEFAULT(SHARED) &
+            !$OMP PRIVATE(fam, father,mate, j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)
                 father = listOfParents(1, fam)
@@ -558,7 +582,7 @@ module AlphaMLPModule
                 posterior(:,mate) = posterior(:,mate) - oldPosteriorDame(:,fam) + markerEstimates%damePosteriorMate(:, fam)
                 posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
             enddo
-
+            !$OMP END PARALLEL DO 
         enddo 
     end subroutine
 
