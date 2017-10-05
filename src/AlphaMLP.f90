@@ -268,28 +268,28 @@ module AlphaMLPModule
         converged = .false.
 
         nCycles = inputParams%nCycles
-        print *, nCycles
+        !print *, nCycles
 
         !Handle the Multilocus Peeler
         cycleIndex = 1
         converged = .false.
         do while(cycleIndex < nCycles .and. .not. converged)
             ! Forward Pass
-            print *, "cycle ", cycleIndex, ", Forward "
+            !print *, "cycle ", cycleIndex, ", Forward "
             do i = 2, nSnps
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
             enddo
             
             ! Backward Pass
-            print *, "cycle ", cycleIndex, ", Backward "
+            !print *, "cycle ", cycleIndex, ", Backward "
             do i = nSnps-1, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
             ! Join Pass                
-            print *, "cycle ", cycleIndex, ", Join "
+            !print *, "cycle ", cycleIndex, ", Join "
             do i = nSnps, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
                 if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
@@ -1162,6 +1162,7 @@ module AlphaMLPModule
         collapsedEstimate = 0
         do seg=1, 4
             !Do for each child allele, aa, aA, Aa, AA
+			!$OMP DO SIMD REDUCTION(+:collapsedEstimate)
             do allele = 1, 4
                 collapsedEstimate(seg) = collapsedEstimate(seg) + sum(segregationTensor(allele, :, :, seg)*expJoint) * expChildGenotypes(allele)
             enddo
@@ -1186,6 +1187,7 @@ module AlphaMLPModule
         !we need to rebuild the trace tensor
         ! traceTensorExp = buildTraceTensor(childSegregation)
         do i=1,nHaplotypes
+			!$OMP DO SIMD
            do j = 1, nHaplotypes
                 collapsedEstimate(i, j) = log(sum(vectExp * traceTensorExp(:, i, j))) + max
            enddo
