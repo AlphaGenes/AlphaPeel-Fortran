@@ -132,16 +132,16 @@ module AlphaMLPModule
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         nSnpsAll = inputParams%nSnp
 
-        print *, "setup Pedigree"
+        !print *, "setup Pedigree"
 
         call setupPedigree(inputParams)
         call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
 
-        print *, "setup founder phasing"
+        !print *, "setup founder phasing"
 
         call setupPhaseChildOfFounders()
 
-        print *, "setup trace"
+        !print *, "setup trace"
 
         call setupTraceTensor
         call setupGenerations()
@@ -197,7 +197,7 @@ module AlphaMLPModule
         allocate(mapIndexes(2, nSnpsAll))
         allocate(mapDistance(nSnpsAll))
         allocate(maf(nsnps))
-        print *, "Running in single locus peeling mode"
+        !print *, "Running in single locus peeling mode"
         if(inputParams%segFile .ne. "No seg") then 
             call readSegregationFile(inputParams, segregationEstimates, segregationOffset, mapIndexes, mapDistance, pedigree)
         endif      
@@ -216,7 +216,7 @@ module AlphaMLPModule
 
                 prevSnpSegID = mapIndexes(1, snpID) - segregationOffset 
                 nextSnpSegID = mapIndexes(2, snpID) - segregationOffset
-                ! print *, "SNPS: ", prevSnpSegID, nextSnpSegID, segregationOffset
+                ! !print *, "SNPS: ", prevSnpSegID, nextSnpSegID, segregationOffset
                 markerSegregation = (1-mapDistance(i))*segregationEstimates(:,prevSnpSegID,:) + &
                                             mapDistance(i)*segregationEstimates(:,nextSnpSegID,:) 
 
@@ -256,11 +256,11 @@ module AlphaMLPModule
         integer :: i, nCycles, cycleIndex
         logical :: converged
 
-        print *, "Running in multi locus peeling mode"
+        !print *, "Running in multi locus peeling mode"
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
-            print *, "Allocating ", i
+            !print *, "Allocating ", i
             call currentPeelingEstimates(i)%initializePeelingEstimates(nHaplotypes, nAnimals, nMatingPairs, nSnpsAll, inputParams%startSnp + i - 1)
         enddo
 
@@ -268,31 +268,31 @@ module AlphaMLPModule
         converged = .false.
 
         nCycles = inputParams%nCycles
-        !print *, nCycles
+        !!print *, nCycles
 
         !Handle the Multilocus Peeler
         cycleIndex = 1
         converged = .false.
         do while(cycleIndex < nCycles .and. .not. converged)
             ! Forward Pass
-            !print *, "cycle ", cycleIndex, ", Forward "
+            !!print *, "cycle ", cycleIndex, ", Forward "
             do i = 2, nSnps
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
+                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Forward ", i
             enddo
             
             ! Backward Pass
-            !print *, "cycle ", cycleIndex, ", Backward "
+            !!print *, "cycle ", cycleIndex, ", Backward "
             do i = nSnps-1, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
+                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
             ! Join Pass                
-            !print *, "cycle ", cycleIndex, ", Join "
+            !!print *, "cycle ", cycleIndex, ", Join "
             do i = nSnps, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
-                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
+                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Join ", i
             enddo
             if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
             cycleIndex = cycleIndex + 1
@@ -319,15 +319,15 @@ module AlphaMLPModule
         markerEstimates%currentSegregationEstimate = markerEstimates%fullSegregation
         !Setup Penetrance
 
-        ! print *, markerEstimates%penetrance
-        ! print *, markerEstimates%penetrance(:, 1:5)
+        ! !print *, markerEstimates%penetrance
+        ! !print *, markerEstimates%penetrance(:, 1:5)
         !Make sure this is set from a file.
         call buildSegregationTraceTensor(markerEstimates)
         maxIteration = inputParams%nCycles
         iteration = 0
         converged = .false.
         do while (.not. converged .and. iteration < maxIteration)
-            ! print *, "Running iteration", iteration
+            ! !print *, "Running iteration", iteration
             iteration = iteration + 1
             !Create Anterior
             !Reset penetrance to account for new error rate.
@@ -354,7 +354,7 @@ module AlphaMLPModule
             converged = markerEstimates%estimatedError < .000001
 
         enddo
-        ! print *, "Finished after", iteration
+        ! !print *, "Finished after", iteration
 
 
     end subroutine
@@ -367,7 +367,7 @@ module AlphaMLPModule
         do i = 1, nSnps
             markerError(i) = currentPeelingEstimates(i)%estimatedError
         enddo
-        print *, "MaxMarkerError", maxval(markerError) 
+        !print *, "MaxMarkerError", maxval(markerError) 
         res = maxval(markerError) < .0001
 
     end function
@@ -494,7 +494,7 @@ module AlphaMLPModule
         
         if(updateParams) then
             call updateRecombinationRate(markerEstimates, currentPeelingEstimates, indexNumber)
-            ! if(markerEstimates%recombinationRate > .01) print *, markerEstimates%recombinationRate
+            ! if(markerEstimates%recombinationRate > .01) !print *, markerEstimates%recombinationRate
             if(.not. inputParams%isSequence) call markerEstimates%updateGenotypeErrorRates()
             if(inputParams%isSequence) call markerEstimates%updateSequenceErrorRates()
             call updateMafEstimates(genotypeEstimates, markerEstimates)
@@ -798,12 +798,12 @@ module AlphaMLPModule
         if (.not. inputParams%isSequence) then 
             call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)     
         else 
-            print *, "reading sequence data"
+            !print *, "reading sequence data"
             call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)
-            print *, "finished reading sequence"
+            !print *, "finished reading sequence"
         endif
 
-        print *, "Pedigree and genotypes loaded"
+        !print *, "Pedigree and genotypes loaded"
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
     end subroutine
@@ -831,7 +831,7 @@ module AlphaMLPModule
         related = .false.
 
         distance = 0
-        print *, "setting up graph to decompose."
+        !print *, "setting up graph to decompose."
         do i = 1, nMatingPairs
             do j = 1, i-1
                 !See if j is the parent of either individual in i.
@@ -1239,7 +1239,7 @@ module AlphaMLPModule
         max = maxval(parentMat)
         parentMatExp = parentMat - max
         parentMatExp = exp(parentMatExp)
-        !MP
+        !$OMP DO SIMD
         do i=1,nHaplotypes
             collapsedEstimate(i) = sum(parentMatExp * traceTensorExp(i,:,:))
         enddo
@@ -1289,6 +1289,7 @@ module AlphaMLPModule
         integer :: i
         ! joint is of the form (or should be of the form) father, mother
         !MP
+		!$OMP DO SIMD
         do i=1,nHaplotypes
             collapsedEstimate(i) = logAdd1t0(vect + joint(:, i))
         enddo
@@ -1371,7 +1372,7 @@ module AlphaMLPModule
 
         endif
         observedChangeRate = nChanges/nObservations
-        ! print *, "change rate", observedChangeRate
+        ! !print *, "change rate", observedChangeRate
 
         ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
         ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
@@ -1399,11 +1400,11 @@ module AlphaMLPModule
 
     !     !We update n to n+1 here.
     !     markerEstimates => currentPeelingEstimates(1)
-    !     print *, markerEstimates%recombinationRate
+    !     !print *, markerEstimates%recombinationRate
 
 
     !     transmissionMatrix = calculateSegregationTransmissionMatrix(markerEstimates%recombinationRate)
-    !     print *, transmissionMatrix
+    !     !print *, transmissionMatrix
 
     !     nChanges = .01
     !     nObservations = 1.0
@@ -1424,16 +1425,16 @@ module AlphaMLPModule
     !             nChanges = nChanges + sum(zi)
     !         endif
     !     enddo
-    !     ! print *, "obs", nChanges, nObservations
+    !     ! !print *, "obs", nChanges, nObservations
     !     observedChangeRate = nChanges/nObservations
-    !     print *, indexNumber, " ", nChanges, " ", nObservations
-    !     print *, indexNumber, " ", observedChangeRate
+    !     !print *, indexNumber, " ", nChanges, " ", nObservations
+    !     !print *, indexNumber, " ", observedChangeRate
         
     !     ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
     !     ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)
     !     ! observedChangeRate = currentRecombinationEstimator%secantEstimate(isLogitIn=.true.)
 
-    !     print *, "change rate", observedChangeRate
+    !     !print *, "change rate", observedChangeRate
 
     !     do indexNumber = 1, nSnps
     !         currentPeelingEstimates(indexNumber)%recombinationRate = observedChangeRate
@@ -1461,7 +1462,7 @@ module AlphaMLPModule
         open(newunit = segregationFile, FILE = trim(inputParams%prefix) // ".seg", status="replace")
         open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
     
-        print *, "Writting outputs"
+        !print *, "Writting outputs"
         write(paramaterFile, '(a)') "maf ", "genotypeError ", "recombinationRate"
         do i = 1, nSnps
             markerEstimates => currentPeelingEstimates(i)
@@ -1477,7 +1478,7 @@ module AlphaMLPModule
         enddo
 
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
-        print *, "row format", rowfmt
+        !print *, "row format", rowfmt
         do i = 1, nAnimals
             tmp = haplotypeFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
@@ -1504,7 +1505,7 @@ module AlphaMLPModule
         enddo
 
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
-        print *, "row format", rowfmt
+        !print *, "row format", rowfmt
         do i = 1, nAnimals
             tmp = segregationFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
@@ -1542,7 +1543,7 @@ module AlphaMLPModule
         integer :: i, j, tmp
 
 
-        print *, "Writting outputs"
+        !print *, "Writting outputs"
 
         open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // ".haps", status="replace")
         open(newunit = dosageFile, FILE = trim(inputParams%prefix) // ".dosages", status="replace")
@@ -1554,7 +1555,7 @@ module AlphaMLPModule
         enddo
 
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
-        print *, "row format", rowfmt
+        !print *, "row format", rowfmt
         do i = 1, nAnimals
             tmp = haplotypeFile
             write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
@@ -1564,10 +1565,10 @@ module AlphaMLPModule
             ! write(outputFile(index),'(a)') " " 
         enddo
 
-        print *, "row format", rowfmt
-        print *, size(combinedGenotypes, 1), size(combinedGenotypes, 2)
+        !print *, "row format", rowfmt
+        !print *, size(combinedGenotypes, 1), size(combinedGenotypes, 2)
         ! do i = 1, nAnimals
-        !     print *,  pedigree%pedigree(i)%originalID, combinedGenotypes(1:50, i)
+        !     !print *,  pedigree%pedigree(i)%originalID, combinedGenotypes(1:50, i)
         ! enddo
         do i = 1, nAnimals
             ! write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
@@ -1651,10 +1652,10 @@ module AlphaMLPModule
         implicit none
         integer, dimension(:, :), intent(in) :: a
         integer i
-        print *, " "
+        !print *, " "
         do i = 1, size(a, 2)
             write (*,"(200f35.30)",advance="no") a(:, i)
-            print *, ""
+            !print *, ""
         enddo
     end subroutine
 
@@ -1664,9 +1665,9 @@ module AlphaMLPModule
         integer i,j
         do j = 1, size(a, 3)
             do i = 1, size(a, 2)
-                print *, a(:, i,j)
+                !print *, a(:, i,j)
             enddo
-            print *, ""
+            !print *, ""
         enddo
     end subroutine
 
@@ -1677,11 +1678,11 @@ module AlphaMLPModule
         do k = 1, size(a, 4)
             do j = 1, size(a, 3)
                 do i = 1, size(a, 2)
-                    print *, nint(a(:, i,j,k))
+                    !print *, nint(a(:, i,j,k))
                 enddo
-                print *, ""
+                !print *, ""
             enddo
-            print *, "----"
+            !print *, "----"
         enddo
     end subroutine
 
@@ -1692,9 +1693,9 @@ module AlphaMLPModule
         do i = 1, size(a, 1)
             do j = 1, size(a, 2)
                 write (*,"(200f12.7)",advance="no") a(i, j, :)
-                print *, ""
+                !print *, ""
             enddo
-            print *, ""
+            !print *, ""
         enddo
     end subroutine
 
@@ -1705,12 +1706,12 @@ module AlphaMLPModule
         do i = 1, size(a, 1)
             do j = 1, size(a, 2)
                 do k = 1, size(a, 3)
-                    print *, nint(a(i, j, k, :))
-                    ! print *, (a(j, :,i,k))
+                    !print *, nint(a(i, j, k, :))
+                    ! !print *, (a(j, :,i,k))
                 enddo
-                print *, ""
+                !print *, ""
             enddo
-            print *, "----"
+            !print *, "----"
         enddo
     end subroutine
 
