@@ -794,7 +794,7 @@ module AlphaMLPModule
         !Depreciating old genotype format.
         ! if (inputParams%pedFile /= "No Pedigree") then
         allocate(pedigree)
-        pedigree = PedigreeHolder(trim(inputParams%pedFile), nsnps=nSnps)
+        call initPedigree(pedigree,trim(inputParams%pedFile), nsnps=nSnps)
         if (.not. inputParams%isSequence) then 
             call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)     
         else 
