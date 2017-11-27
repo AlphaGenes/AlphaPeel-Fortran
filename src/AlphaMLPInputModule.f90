@@ -29,11 +29,13 @@
 
     use iso_fortran_env
     use ConstantModule, only : FILELENGTH
-    
+    use baseSpecFileModule
 
-    type AlphaMLPInput
+
+    type, extends(baseSpecFile) ::  AlphaMLPInput
+ 
         integer :: nGenotypedAnimals
-        integer :: nSnp
+        ! integer :: nSnp !Already in baseSpecFile
         character(len=FILELENGTH) :: inputFile
         integer :: startSnp
         integer :: endSnp
@@ -159,6 +161,13 @@
 
             res%mapFile = "No map"
             res%segFile = "No seg"
+            !Plink stuff
+            res%resultFolderPath = "Results"
+
+            res%plinkinputfile = ""
+            res%plinkBinary = ""
+
+
             print *, "specfile", specfile
             open(newunit=unit, file=SpecFile, action="read", status="old")
             IOStatus = 0
@@ -226,6 +235,24 @@
                             do i=1,size(second)
                                 read(second(i),*) res%thresholds(i)
                             enddo
+
+                        case("plinkinputfile")
+                            if (.not. allocated(second)) then
+                                write(error_unit, "(A)") "error, Plinkinputfile allocated incorrectly"
+                            else
+                                if (size(second) < 2) then
+                                    write(error_unit, "(A)") "error, Plinkinputfile allocated incorrectly"
+                                else
+                                    if (tolower(second(1)) == "binary") then
+                                        res%plinkBinary = .true.
+                                    else
+                                        res%plinkBinary = .false.
+                                    endif
+
+                                    write(res%plinkinputfile, "(A)") second(2)
+                                endif
+
+                            end if
 
 
                         case default

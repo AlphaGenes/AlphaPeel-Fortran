@@ -58,7 +58,8 @@ module AlphaMLPModule
     subroutine runAlphaMLPAlphaImpute(startSnp, endSnp, ped, AlphaMLPOutput, Maf)
 
         use globalGP, only :pedigree, nsnps, inputParams
-        
+
+
         integer, intent(in) :: startSnp, endSnp
         integer :: i, j
         type(PedigreeHolder) ,target:: ped
@@ -115,11 +116,11 @@ module AlphaMLPModule
     !> @date       Febuary 7, 2016
     !---------------------------------------------------------------------------
     subroutine runAlphaMLPIndependently()
-        use globalGP, only: nSnps, sequenceData, inputParams
+        use globalGP, only: nSnps, sequenceData
+        use alphaFullChromModule
         implicit none
         character(len=4096) :: SpecFile
-        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
-        real(kind=real64), dimension(:), allocatable :: maf
+        type(AlphaMLPInput) :: inputParamsIn
 
         if (Command_Argument_Count() > 0) then
             call Get_Command_Argument(1,SpecFile)
@@ -128,13 +129,57 @@ module AlphaMLPModule
         end if
 
 
-        inputParams = AlphaMLPInput(SpecFile)        
+        inputParamsIn = AlphaMLPInput(SpecFile)
+
+        if (inputParams%plinkinputfile /= "") then
+            call runPlink(inputParamsIn%plinkinputfile, inputParamsIn, runAlphaMLPBasedOnSpec)
+
+        else
+            call runAlphaMLPBasedOnSpec(inputParamsIn)
+        endif
+
+
+    end subroutine runAlphaMLPIndependently
+
+    subroutine runAlphaMLPBasedOnSpec(inputParamsIn, pedigreeIn)         
+
+        use globalGP, only: nSnps, sequenceData, inputParams, nAnimals, founders, pedigree
+        implicit none
+        class(baseSpecFile), target :: inputParamsIn
+        type(pedigreeHolder), target, optional :: pedigreeIn
+
+        real(kind=real64), dimension(:,:,:), allocatable:: outputHaplotypes
+        real(kind=real64), dimension(:), allocatable :: maf
+
+
+        select type(inputParamsIn)
+
+            type is (AlphaMLPInput)
+            inputParams = inputParamsIn
+            class default
+            write(error_unit, *) "ERROR: AlphaImpute given correct object type as input"
+            call abort()
+        end select
+
+        
+
+
+        if (inputParams%plinkinputfile /= "") then
+            inputParams%endSnp = inputParamsIn%nSnp
+            inputParams%startSnp = 1
+            pedigree => pedigreeIn
+        else
+            call setupPedigree(inputParams)
+        endif   
+        nAnimals = pedigree%pedigreeSize
+        founders = pedigree%founders%convertToArrayIDs()
+
         nSnps = inputParams%endSnp-inputParams%startSnp+1
         nSnpsAll = inputParams%nSnp
 
+
         !print *, "setup Pedigree"
 
-        call setupPedigree(inputParams)
         call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
 
         !print *, "setup founder phasing"
@@ -154,8 +199,7 @@ module AlphaMLPModule
         if(inputParams%runType == "single") call runSingleLocus(outputHaplotypes, maf ,output=.true.)
         if(inputParams%runType == "multi") call runIndependentMultiLocus()
 
-    end subroutine runAlphaMLPIndependently
-
+    end subroutine
 
     subroutine runIndependentMultiLocus()
         use globalGP, only: nSnps, sequenceData, inputParams
@@ -203,10 +247,11 @@ module AlphaMLPModule
         endif      
         
 
-        !$omp parallel do &
-        !$omp default(shared) & 
-        !$omp private(i, snpID, markerEstimates,prevSnpSegID,nextSnpSegID,markerSegregation)
+        !!$OMP parallel do &
+        !!$OMP default(shared) & 
+        !!$OMP private(i, snpID, markerEstimates,prevSnpSegID,nextSnpSegID,markerSegregation)
         do i = 1, nSnps
+            print *, i
             allocate(markerEstimates)
             snpID = inputParams%startSnp + i - 1
             !Note: We want the SNP by order in which it is loaded in, not the snp id
@@ -236,7 +281,7 @@ module AlphaMLPModule
             call markerEstimates%deallocatePeelingEstimates()
             deallocate(markerEstimates)
         enddo
-        !$omp end parallel do
+        !!$OMP end parallel do
 
         if (output) then
             call writeOutputsToFileSingleLocus(outputHaplotypes, outputDosages, markerError, maf)
@@ -257,6 +302,12 @@ module AlphaMLPModule
         logical :: converged
 
         !print *, "Running in multi locus peeling mode"
+        if(associated(currentPeelingEstimates)) then
+            do i = 1, nSnps
+                call currentPeelingEstimates(i)%deallocateMarkerVariables()
+            enddo
+            currentPeelingEstimates => null()
+        endif
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
@@ -275,24 +326,25 @@ module AlphaMLPModule
         converged = .false.
         do while(cycleIndex < nCycles .and. .not. converged)
             ! Forward Pass
-            !!print *, "cycle ", cycleIndex, ", Forward "
+            print *, "cycle ", cycleIndex, ", Forward "
             do i = 2, nSnps
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 1)
-                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Forward ", i
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Forward ", i
+                 ! print *, "cycle ", cycleIndex, ", Forward ", i
             enddo
             
             ! Backward Pass
             !!print *, "cycle ", cycleIndex, ", Backward "
             do i = nSnps-1, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 2)
-                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Backward ", i
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Backward ", i
             enddo
 
             ! Join Pass                
             !!print *, "cycle ", cycleIndex, ", Join "
             do i = nSnps, 1, -1
                 call runIndex(pedigree%getAllGenotypesAtPositionWithUngenotypedAnimals(i), i, currentPeelingEstimates, 3, .true.)
-                !if(mod(i, 100) .eq. 0) !print *, "cycle ", cycleIndex, ", Join ", i
+                if(mod(i, 100) .eq. 0) print *, "cycle ", cycleIndex, ", Join ", i
             enddo
 
             if(cycleIndex > 1) converged = checkConvergence(currentPeelingEstimates)
@@ -331,6 +383,7 @@ module AlphaMLPModule
         do while (.not. converged .and. iteration < maxIteration)
             ! !print *, "Running iteration", iteration
             iteration = iteration + 1
+            print *, iteration
             !Create Anterior
             !Reset penetrance to account for new error rate.
             if (.not. inputParams%isSequence) then 
@@ -527,13 +580,13 @@ module AlphaMLPModule
     ! PEEL DOWN 
         do i = 1, nGenerations
             tmpFamilyList = familiesInGeneration(i)%array
-            !$OMP PARALLEL DO DEFAULT(SHARED) &
-            !$OMP PRIVATE(fam,j)
+            !!$OMP PARALLEL DO DEFAULT(SHARED) &
+            !!$OMP PRIVATE(fam,j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)        
                 call peelDown(markerEstimates, fam)
             enddo
-            !$OMP END PARALLEL DO
+            !!$OMP END PARALLEL DO
         enddo 
 
 
@@ -541,13 +594,13 @@ module AlphaMLPModule
         do i = nGenerations, 1, -1
             tmpFamilyList = familiesInGeneration(i)%array
             if(doUpdateSegregation) then
-                !$OMP PARALLEL DO DEFAULT(SHARED) &
-                !$OMP PRIVATE(fam,j)
+                !!$OMP PARALLEL DO DEFAULT(SHARED) &
+                !!$OMP PRIVATE(fam,j)
                 do j = 1, size(tmpFamilyList)
                     fam = tmpFamilyList(j)        
                     call updateSegregation(markerEstimates, fam)
                 enddo
-                !$OMP END PARALLEL DO
+                !!$OMP END PARALLEL DO
                 markerEstimates%currentSegregationEstimate(:,childrenAtGeneration(i)%array) = &
                                         markerEstimates%currentSegregationEstimate(:, childrenAtGeneration(i)%array) *&
                                         markerEstimates%pointSegregation(:, childrenAtGeneration(i)%array)
@@ -556,17 +609,17 @@ module AlphaMLPModule
             endif
             
 
-            !$OMP PARALLEL DO DEFAULT(SHARED) &
-            !$OMP PRIVATE(fam,j)
+            !!$OMP PARALLEL DO DEFAULT(SHARED) &
+            !!$OMP PRIVATE(fam,j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)        
                 call peelUp(markerEstimates, fam)
             enddo
-            !$OMP END PARALLEL DO
+            !!$OMP END PARALLEL DO
 
 
-            !$OMP PARALLEL DO DEFAULT(SHARED) &
-            !$OMP PRIVATE(fam, father,mate, j)
+            !!$OMP PARALLEL DO DEFAULT(SHARED) &
+            !!$OMP PRIVATE(fam, father,mate, j)
             do j = 1, size(tmpFamilyList)
                 fam = tmpFamilyList(j)
                 father = listOfParents(1, fam)
@@ -578,7 +631,7 @@ module AlphaMLPModule
                 posterior(:,mate) = posterior(:,mate) - oldPosteriorDame(:,fam) + markerEstimates%damePosteriorMate(:, fam)
                 posterior(:,mate) = posterior(:,mate) - maxval(posterior(:,mate))
             enddo
-            !$OMP END PARALLEL DO 
+            !!$OMP END PARALLEL DO 
         enddo 
     end subroutine
 
@@ -773,6 +826,9 @@ module AlphaMLPModule
         integer, dimension(nAnimals) :: animalGeneration
         integer :: i
 
+        if(allocated(familiesInGeneration)) deallocate(familiesInGeneration)
+        if(allocated(childrenAtGeneration)) deallocate(childrenAtGeneration)
+        
         do i = 1, nMatingPairs
             familyGeneration(i) = offspringList(i)%first%item%generation
         enddo 
@@ -824,8 +880,6 @@ module AlphaMLPModule
         endif
 
         !print *, "Pedigree and genotypes loaded"
-        nAnimals = pedigree%pedigreeSize
-        founders = pedigree%founders%convertToArrayIDs()
     end subroutine
     
 
@@ -908,6 +962,10 @@ module AlphaMLPModule
         
         newArrayOptions(:, 1) = [0, 0, 1, 1]
         newArrayOptions(:, 2) = [0, 1, 0, 1]
+        if(allocated(phaseChildren)) deallocate(phaseChildren)
+        if(allocated(phaseChildrenOverride)) deallocate(phaseChildrenOverride)
+        if(allocated(isPhasedChild)) deallocate(isPhasedChild)
+
         allocate(phaseChildren(size(founders)))
         allocate(phaseChildrenOverride(4, size(founders)))
         allocate(isPhasedChild(nAnimals))
@@ -959,6 +1017,12 @@ module AlphaMLPModule
         real(kind=real64), dimension(nHaplotypes, nHaplotypes) :: zeroArray
         real(kind = real64) :: error
         real(kind=real64), dimension(nHaplotypes,nHaplotypes,nHaplotypes) :: traceTensor
+        
+        if(allocated(traceTensorExp)) deallocate(traceTensorExp)
+        if(associated(segregationTensor)) segregationTensor => null()
+        if(associated(segregationTensorParentsFirst)) segregationTensorParentsFirst => null()
+
+
         allocate(traceTensorExp(nHaplotypes,nHaplotypes,nHaplotypes))
         !Trace tensor is of the form "child, father, mother"
         !assume the haplotypes are of the form aa, aA, Aa, AA, in order Father,Mother
@@ -1182,7 +1246,7 @@ module AlphaMLPModule
         collapsedEstimate = 0
         do seg=1, 4
             !Do for each child allele, aa, aA, Aa, AA
-			!$OMP DO SIMD REDUCTION(+:collapsedEstimate)
+			!!!$OMP DO SIMD REDUCTION(+:collapsedEstimate)
             do allele = 1, 4
                 collapsedEstimate(seg) = collapsedEstimate(seg) + sum(segregationTensor(allele, :, :, seg)*expJoint) * expChildGenotypes(allele)
             enddo
@@ -1207,7 +1271,7 @@ module AlphaMLPModule
         !we need to rebuild the trace tensor
         ! traceTensorExp = buildTraceTensor(childSegregation)
         do i=1,nHaplotypes
-			!$OMP DO SIMD
+			!!!$OMP DO SIMD
            do j = 1, nHaplotypes
                 collapsedEstimate(i, j) = log(sum(vectExp * traceTensorExp(:, i, j))) + max
            enddo
@@ -1259,7 +1323,7 @@ module AlphaMLPModule
         max = maxval(parentMat)
         parentMatExp = parentMat - max
         parentMatExp = exp(parentMatExp)
-        !$OMP DO SIMD
+        !!$OMP DO SIMD
         do i=1,nHaplotypes
             collapsedEstimate(i) = sum(parentMatExp * traceTensorExp(i,:,:))
         enddo
@@ -1309,7 +1373,7 @@ module AlphaMLPModule
         integer :: i
         ! joint is of the form (or should be of the form) father, mother
         !MP
-		!$OMP DO SIMD
+		!!$OMP DO SIMD
         do i=1,nHaplotypes
             collapsedEstimate(i) = logAdd1t0(vect + joint(:, i))
         enddo
