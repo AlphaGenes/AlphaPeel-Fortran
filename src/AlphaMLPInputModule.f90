@@ -42,7 +42,7 @@
         integer :: nCycles
         logical :: isSequence
         character(len=FILELENGTH) :: sequenceFile, pedFile, runtype
-        character(len=FILELENGTH) :: mapFile, segFile, prefix
+        character(len=FILELENGTH) :: mapFile, segFile, prefix, basePrefix
 
         real(kind=real64), dimension(:), allocatable :: thresholds
 
@@ -150,7 +150,7 @@
             res%startSnp = -1
             res%endSnp = -1
             res%inputFile = "AlphaMLPGenotypes.txt"
-            res%prefix = ""
+            res%basePrefix = ""
             res%pedFile = "No Pedigree"
             res%runType = "multi"
             res%segFile = "No seg"
@@ -162,7 +162,7 @@
             res%mapFile = "No map"
             res%segFile = "No seg"
             !Plink stuff
-            res%resultFolderPath = "Results"
+            res%resultFolderPath = ""
 
             res%plinkinputfile = ""
             res%plinkBinary = ""
@@ -199,9 +199,9 @@
 
                         case("outputfilepath")
                             if (.not. allocated(second)) then
-                                write(*, "(A,A)") "No output file specified. Using default filename: ", res%prefix
+                                write(*, "(A,A)") "No output file specified. Using default filename: ", res%basePrefix
                             else
-                                write(res%prefix, "(A)") trim(second(1))
+                                write(res%basePrefix, "(A)") trim(second(1))
                             end if
                         
                         case("pedigree")

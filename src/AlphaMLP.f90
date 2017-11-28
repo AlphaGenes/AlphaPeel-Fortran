@@ -162,7 +162,7 @@ module AlphaMLPModule
         end select
 
         
-
+        inputParams%prefix = trim(inputParams%resultFolderPath)//trim(inputParams%basePrefix)
 
         if (inputParams%plinkinputfile /= "") then
             inputParams%endSnp = inputParamsIn%nSnp
@@ -210,8 +210,13 @@ module AlphaMLPModule
         call runMultiLocusAlphaMLP(currentPeelingEstimates)
         
         call writeOutputsToFileMultiLocus(currentPeelingEstimates)
-
-        deallocate(currentPeelingEstimates)
+        
+        if(associated(currentPeelingEstimates)) then
+            do i = 1, nSnps
+                call currentPeelingEstimates(i)%deallocatePeelingEstimates()
+            enddo
+            currentPeelingEstimates => null()
+        endif
 
     end subroutine
 
@@ -302,12 +307,6 @@ module AlphaMLPModule
         logical :: converged
 
         !print *, "Running in multi locus peeling mode"
-        if(associated(currentPeelingEstimates)) then
-            do i = 1, nSnps
-                call currentPeelingEstimates(i)%deallocateMarkerVariables()
-            enddo
-            currentPeelingEstimates => null()
-        endif
 
         allocate(currentPeelingEstimates(nSnps))
         do i = 1, nSnps
