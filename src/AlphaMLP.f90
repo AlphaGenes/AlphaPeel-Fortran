@@ -131,7 +131,7 @@ module AlphaMLPModule
 
         inputParamsIn = AlphaMLPInput(SpecFile)
 
-        if (inputParams%plinkinputfile /= "") then
+        if (inputParamsIn%plinkinputfile /= "") then
             call runPlink(inputParamsIn%plinkinputfile, inputParamsIn, runAlphaMLPBasedOnSpec)
 
         else
@@ -161,9 +161,11 @@ module AlphaMLPModule
             call abort()
         end select
 
-        
-        inputParams%prefix = trim(inputParams%resultFolderPath)//trim(inputParams%basePrefix)
+        nSnps = inputParams%endSnp-inputParams%startSnp+1
+        nSnpsAll = inputParams%nSnp
 
+
+        inputParams%prefix = trim(inputParams%resultFolderPath)//trim(inputParams%basePrefix)
         if (inputParams%plinkinputfile /= "") then
             inputParams%endSnp = inputParamsIn%nSnp
             inputParams%startSnp = 1
@@ -171,29 +173,14 @@ module AlphaMLPModule
         else
             call setupPedigree(inputParams)
         endif   
+
         nAnimals = pedigree%pedigreeSize
         founders = pedigree%founders%convertToArrayIDs()
 
-        nSnps = inputParams%endSnp-inputParams%startSnp+1
-        nSnpsAll = inputParams%nSnp
-
-
-        !print *, "setup Pedigree"
-
         call pedigree%getMatePairsAndOffspring(offspringList, listOfParents, nMatingPairs)
-
-        !print *, "setup founder phasing"
-
         call setupPhaseChildOfFounders()
-
-        !print *, "setup trace"
-
         call setupTraceTensor
         call setupGenerations()
-
-
-        ! call printTrace(buildTraceTensor([.25D0,.25D0,.25D0,.25D0]))
-        ! call printTrace(buildTraceTensor([1D0,0D0,0D0,.0D0]))
 
 
         if(inputParams%runType == "single") call runSingleLocus(outputHaplotypes, maf ,output=.true.)
@@ -236,7 +223,7 @@ module AlphaMLPModule
         real(kind=real64), dimension(:,:), pointer:: outputDosages
         real(kind=real64), dimension(nSnps) :: markerError
         real(kind=real64), dimension(:), allocatable :: maf
-    real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
+        real(kind=real64), dimension(:,:,:), allocatable:: segregationEstimates
         real(kind=real64), dimension(:,:), allocatable:: markerSegregation
         integer :: segregationOffset, prevSnpSegID, nextSnpSegID
         
@@ -266,11 +253,9 @@ module AlphaMLPModule
 
                 prevSnpSegID = mapIndexes(1, snpID) - segregationOffset 
                 nextSnpSegID = mapIndexes(2, snpID) - segregationOffset
-                ! !print *, "SNPS: ", prevSnpSegID, nextSnpSegID, segregationOffset
                 markerSegregation = (1-mapDistance(i))*segregationEstimates(:,prevSnpSegID,:) + &
                                             mapDistance(i)*segregationEstimates(:,nextSnpSegID,:) 
 
-                ! markerEstimates%fullSegregation = segregationEstimates(:,i,:)
                 markerEstimates%fullSegregation = markerSegregation
             else
                 markerEstimates%fullSegregation = .25
@@ -382,7 +367,7 @@ module AlphaMLPModule
         do while (.not. converged .and. iteration < maxIteration)
             ! !print *, "Running iteration", iteration
             iteration = iteration + 1
-            print *, iteration
+            ! print *, iteration
             !Create Anterior
             !Reset penetrance to account for new error rate.
             if (.not. inputParams%isSequence) then 
@@ -867,18 +852,14 @@ module AlphaMLPModule
 
 
         !Depreciating old genotype format.
-        ! if (inputParams%pedFile /= "No Pedigree") then
         allocate(pedigree)
         call initPedigree(pedigree,trim(inputParams%pedFile), nsnps=nSnps)
         if (.not. inputParams%isSequence) then 
             call pedigree%addGenotypeInformationFromFile(inputParams%inputFile,inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)     
         else 
-            !print *, "reading sequence data"
             call pedigree%addSequenceFromFile(inputParams%sequenceFile, inputParams%nsnp, startSnp=inputParams%startSnp, endSnp=inputParams%endSnp)
-            !print *, "finished reading sequence"
         endif
 
-        !print *, "Pedigree and genotypes loaded"
     end subroutine
     
 
@@ -1455,7 +1436,6 @@ module AlphaMLPModule
 
         endif
         observedChangeRate = nChanges/nObservations
-        ! !print *, "change rate", observedChangeRate
 
         ! currentRecombinationEstimator => markerEstimates%recombinationEstimator
         ! call currentRecombinationEstimator%addObservation(markerEstimates%recombinationRate, observedChangeRate)

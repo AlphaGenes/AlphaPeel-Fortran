@@ -168,7 +168,6 @@
             res%plinkBinary = ""
 
 
-            print *, "specfile", specfile
             open(newunit=unit, file=SpecFile, action="read", status="old")
             IOStatus = 0
             READFILE: do while (IOStatus==0)
@@ -279,37 +278,6 @@
         end function initFromFile
 
 
-
-        ! subroutine readGenotypes(input, pedigree)
-        !     use PedigreeModule
-        !     use ConstantModule, only : IDLENGTH,DICT_NULL
-
-        !     type(AlphaMLPInput),intent(in) :: input
-        !     type(PedigreeHolder) , intent(inout) :: pedigree
-        !     ! type(Pedigreeholder), intent(inout) :: genotype
-        !     integer(KIND=1), allocatable, dimension(:) :: tmp
-        !     integer :: unit, tmpID,i
-        !     character(len=IDLENGTH) :: seqid, seqsire, seqdam !placeholder variables
-        !     open(newunit=unit,FILE=trim(input%inputFile),STATUS="old") !INPUT FILE
-        
-        !     ! allocate(res(input%nGenotypedAnimals,input%endSnp-input%startSnp+1))
-        !     allocate(tmp(input%endSnp-input%startSnp+1))
-        !     tmp = 9
-            ! do i=1,input%nGenotypedAnimals
-            !     ! print *, i
-            !     read (unit,*) seqid, seqsire, seqdam, tmp(:)
-
-            !     tmpID = pedigree%dictionary%getValue(seqid)
-
-            !     if (tmpID /= DICT_NULL) then
-            !         call pedigree%pedigree(tmpID)%setGenotypeArray(tmp)
-            !     endif
-            ! end do
-
-        !     close(unit)
-        
-        ! end subroutine readGenotypes
-
         subroutine readSegregationFile(inputParams, segregationEstimates, segregationOffset, mapIndexes, mapDistance, pedigree)
             use PedigreeModule
             use ConstantModule, only : IDLENGTH
@@ -339,8 +307,6 @@
                 enddo
 
             endif 
-            print *, size(mapIndexes)
-            print *, size(mapDistance)
             numLDSnps = maxval(mapIndexes)
             firstLD = mapIndexes(1, inputParams%startsnp)
             lastLD = mapIndexes(2, inputParams%endsnp)
@@ -352,8 +318,6 @@
             close(unit)
             open(newunit=unit,FILE=trim(inputParams%segFile),STATUS="old") !INPUT FILE
 
-            print *, numLDSnps, pedigree%pedigreeSize
-            ! stop
             do i=1,pedigree%pedigreeSize
                 read (unit,*) seqid, tmpSegregation(1,:)
                 read (unit,*) seqid, tmpSegregation(2,:)
@@ -371,9 +335,9 @@
 
             normalizationConstant = .000001
             segregationEstimates = (1-normalizationConstant) * segregationEstimates + normalizationConstant
-            print *, "read finished"
-            print *, "Seg dimension", size(segregationEstimates,1), size(segregationEstimates,2), size(segregationEstimates, 3)
-            print *, "Snp Info:", firstLD, lastLD, segregationOffset
+            ! print *, "read finished"
+            ! print *, "Seg dimension", size(segregationEstimates,1), size(segregationEstimates,2), size(segregationEstimates, 3)
+            ! print *, "Snp Info:", firstLD, lastLD, segregationOffset
 
 
 
