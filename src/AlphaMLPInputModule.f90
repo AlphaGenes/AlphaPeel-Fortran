@@ -141,7 +141,7 @@
             if (present(SpecFileIn)) then
                 specFile = SpecFileIn
             else
-                specFile = "AlphaMLPSpec.txt"
+                specFile = "AlphaPeelSpec.txt"
             endif
 
             ! init everything
@@ -149,7 +149,7 @@
             res%nSnp = 0
             res%startSnp = -1
             res%endSnp = -1
-            res%inputFile = "AlphaMLPGenotypes.txt"
+            res%inputFile = "AlphaPeelGenotypes.txt"
             res%basePrefix = ""
             res%pedFile = "No Pedigree"
             res%runType = "multi"

@@ -1,4 +1,4 @@
-SET(AlphaMLPEXE AlphaMLP)
+SET(AlphaMLPEXE AlphaPeel)
 SET(AlphaMLP_src AlphaMLPInputModule.f90
 AlphaMLP.f90
 pedigreeGraphModule.f90
