@@ -1,0 +1,15 @@
+\contentsline {section}{Introduction}{1}{section*.3}
+\contentsline {subsection}{Availability}{1}{section*.4}
+\contentsline {subsection}{Conditions of use}{1}{section*.5}
+\contentsline {subsection}{Disclaimer}{2}{section*.6}
+\contentsline {section}{Run commands and spec file}{2}{section*.7}
+\contentsline {section}{Input file formats}{2}{section*.8}
+\contentsline {subsection}{Genotype file}{2}{section*.9}
+\contentsline {subsection}{Sequence file}{3}{section*.10}
+\contentsline {subsection}{Pedigree file}{3}{section*.11}
+\contentsline {subsection}{Map file}{3}{section*.12}
+\contentsline {section}{Output file formats}{3}{section*.13}
+\contentsline {subsection}{Haplotype file}{3}{section*.14}
+\contentsline {subsection}{Dosage file}{4}{section*.15}
+\contentsline {subsection}{Segregation file}{4}{section*.16}
+\contentsline {subsection}{Parameter file}{5}{section*.17}
