@@ -44,6 +44,8 @@
         character(len=FILELENGTH) :: sequenceFile, pedFile, runtype
         character(len=FILELENGTH) :: mapFile, segFile, prefix, basePrefix
 
+        logical :: writeHaps, writeDosages, writeParams, binaryCallOutput
+
         real(kind=real64), dimension(:), allocatable :: thresholds
 
     end type AlphaMLPInput
@@ -117,6 +119,11 @@
             res%mapFile = "No map"
             res%segFile = "No seg"
 
+            res%writeDosages = .true.            
+            res%writeHaps = .true.
+            res%writeParams = .true.   
+            res%binaryCallOutput = .false.         
+
 
         end function initFromSnps
 
@@ -166,6 +173,12 @@
 
             res%plinkinputfile = ""
             res%plinkBinary = ""
+
+            res%writeDosages = .true.            
+            res%writeHaps = .true.
+            res%writeParams = .true.            
+            res%binaryCallOutput = .false.         
+
 
 
             open(newunit=unit, file=SpecFile, action="read", status="old")
@@ -233,7 +246,26 @@
                             allocate(res%thresholds(size(second)))
                             do i=1,size(second)
                                 read(second(i),*) res%thresholds(i)
-                            enddo
+                        enddo
+
+
+                        case("writedosages")
+                            read(second(1),*) tmp
+                            if(tmp == "no") res%writeDosages = .false.            
+                        
+                        case("writehaps")
+                            read(second(1),*) tmp
+                            if(tmp == "no") res%writeHaps = .false.
+                        
+                        case("writeparams")
+                            read(second(1),*) tmp
+                            if(tmp == "no") res%writeParams = .false.            
+
+                        case("binarycalloutput")
+                            read(second(1),*) tmp
+                            if(tmp == "yes") res%binaryCallOutput = .true.            
+
+
 
                         case("plinkinputfile")
                             if (.not. allocated(second)) then

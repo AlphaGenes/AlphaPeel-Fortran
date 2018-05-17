@@ -1608,36 +1608,39 @@ module AlphaMLPModule
 
         !print *, "Writting outputs"
 
-        open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // ".haps", status="replace")
-        open(newunit = dosageFile, FILE = trim(inputParams%prefix) // ".dosages", status="replace")
-        open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
+        if(inputParams%writeHaps) open(newunit = haplotypeFile, FILE = trim(inputParams%prefix) // ".haps", status="replace")
+        if(inputParams%writeDosages) open(newunit = dosageFile, FILE = trim(inputParams%prefix) // ".dosages", status="replace")
+        if(inputParams%writeParams) open(newunit = paramaterFile, FILE = trim(inputParams%prefix) // ".params", status="replace")
 
         ! write(paramaterFile, '(a)') "maf ", "gError "
-        do i = 1, nSnps
-            write(paramaterFile, '(3f12.7)') maf(i), markerError(i)
-        enddo
-
+        if(inputParams%writeParams) then
+            do i = 1, nSnps
+                write(paramaterFile, '(3f12.7)') maf(i), markerError(i)
+            enddo
+        endif
         WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'f10.4)'
-        !print *, "row format", rowfmt
-        do i = 1, nAnimals
-            tmp = haplotypeFile
-            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
-            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
-            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
-            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
-            ! write(outputFile(index),'(a)') " " 
-        enddo
 
+        if(inputParams%writeHaps) then
+            !print *, "row format", rowfmt
+            do i = 1, nAnimals
+                tmp = haplotypeFile
+                write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
+                write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(2,:, i)
+                write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(3,:, i)
+                write(tmp, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(4,:, i)
+                ! write(outputFile(index),'(a)') " " 
+            enddo
+        endif
         !print *, "row format", rowfmt
         !print *, size(combinedGenotypes, 1), size(combinedGenotypes, 2)
         ! do i = 1, nAnimals
         !     !print *,  pedigree%pedigree(i)%originalID, combinedGenotypes(1:50, i)
         ! enddo
-        do i = 1, nAnimals
-            ! write(auxFile, rowfmt) pedigree%pedigree(i)%originalID, combinedHaplotypes(1,:, i)
-            write(dosageFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
-        enddo
-      
+        if(inputParams%writeDosages) then
+            do i = 1, nAnimals
+                write(dosageFile, rowfmt) pedigree%pedigree(i)%originalID, combinedGenotypes(:, i)
+            enddo
+        endif      
 
         !Output based on threshold
         if(allocated(inputParams%thresholds)) then
@@ -1647,38 +1650,54 @@ module AlphaMLPModule
             enddo
         endif
 
-
-
-
-
     end subroutine
+
     subroutine callAlleles(threshold, combinedHaplotypes) 
         use globalGP
+        use CompatibilityModule
         implicit none
         real(kind=real64), dimension(:,:,:), allocatable :: combinedHaplotypes
-        real(kind=real64) :: threshold
+        real(kind=real64) :: threshold, currentVal, score
         CHARACTER(LEN=128) :: rowfmt, fileName
-        integer, dimension(nSnps) :: individualGenotype
-        integer :: i, j, tmp
+        integer(kind=1),allocatable,dimension (:,:) :: individualGenotype
+        integer :: i, j, tmp, genoCall
 
+        allocate(individualGenotype(nAnimals, nSnps))
 
         write(fileName, '(F8.5)') threshold
         fileName =  trim(inputParams%prefix) // 'pointGenotypes_' // trim(adjustl(fileName)) // '.txt'
-        open(newunit = tmp, FILE = trim(fileName), status="replace")
+        ! open(newunit = tmp, FILE = trim(fileName), status="replace")
 
-        WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'I2)'
+        ! WRITE(rowfmt,'(A,I9,A)') '(a,',nSnps+10,'I2)'
 
+        individualGenotype = 9
         do i = 1, nAnimals
-            individualGenotype = 9
             do j = 1, nSnps
-                if(combinedHaplotypes(1, j, i) > threshold) individualGenotype(j) = 0
-                if(combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)> threshold) individualGenotype(j) = 1
-                if(combinedHaplotypes(4, j, i) > threshold) individualGenotype(j) = 2
+                genoCall = 9
+                currentVal = -1
+                score = combinedHaplotypes(1, j, i)
+                if(score > threshold .and. score > currentVal) genoCall = 0
+                
+                score = combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)
+                if(score > threshold .and. score > currentVal) genoCall = 1
+                
+                score = combinedHaplotypes(4, j, i)
+                if(score > threshold .and. score > currentVal) genoCall = 2
+
+                individualGenotype(i, j) = genoCall
             enddo
 
-            write(tmp, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
+
+            ! write(tmp, rowfmt) pedigree%pedigree(i)%originalID, individualGenotype
         enddo
-        close(tmp)
+        call pedigree%addGenotypeInformationFromArray(individualGenotype)
+
+        if(inputParams%binaryCallOutput) then
+            call writeOutPlinkBinary(pedigree, fileName)
+        else
+            call pedigree%writeOutGenotypes(fileName)
+        endif
+        ! close(tmp)
     end subroutine
 
 

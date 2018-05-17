@@ -4,5 +4,10 @@ EndSnp,         300
 InputFilePath, smallsim-maskedGenotype.txt
 pedigree, smallsim-pedigree.txt
 OutputFilePath, multilocus 
-nCycles, 10
-runType, multi
+nCycles, 3
+callingthresholds, .1, .9
+runType, single
+writeDosages, no
+writeHaps, no
+writeParams, no
+binarycalloutput, yes
