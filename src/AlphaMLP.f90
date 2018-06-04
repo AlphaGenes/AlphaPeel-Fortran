@@ -1693,7 +1693,7 @@ module AlphaMLPModule
         call pedigree%addGenotypeInformationFromArray(individualGenotype)
 
         if(inputParams%binaryCallOutput) then
-            call writeOutPlinkBinary(pedigree, fileName)
+            call writeOutPlinkBinary(pedigree, fileName, startPosIn= inputParams%startSnp)
         else
             call pedigree%writeOutGenotypes(fileName)
         endif
