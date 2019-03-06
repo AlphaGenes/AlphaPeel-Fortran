@@ -1676,13 +1676,22 @@ module AlphaMLPModule
                 genoCall = 9
                 currentVal = -1
                 score = combinedHaplotypes(1, j, i)
-                if(score > threshold .and. score > currentVal) genoCall = 0
-                
+                if(score > threshold .and. score > currentVal) then
+                    currentVal = score
+                    genoCall = 0
+                endif
+
                 score = combinedHaplotypes(2, j, i) + combinedHaplotypes(3, j, i)
-                if(score > threshold .and. score > currentVal) genoCall = 1
+                if(score > threshold .and. score > currentVal) then
+                    currentVal = score
+                    genoCall = 1
+                endif
                 
                 score = combinedHaplotypes(4, j, i)
-                if(score > threshold .and. score > currentVal) genoCall = 2
+                if(score > threshold .and. score > currentVal) then
+                    currentVal = score
+                    genoCall = 2
+                endif
 
                 individualGenotype(i, j) = genoCall
             enddo
