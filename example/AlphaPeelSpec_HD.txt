@@ -1,0 +1,6 @@
+nSnp         ,       300
+InputFilePath, masked_snp_array.txt
+pedigree, pedigree.txt
+OutputFilePath, outputs/snp_array_results
+nCycles, 20
+runType, multi

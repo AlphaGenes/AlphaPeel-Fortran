@@ -1,0 +1,10 @@
+InputFilePath, None
+pedigree, pedigree.txt
+OutputFilePath, test 
+nSnp         ,       1
+StartSnp,           1
+EndSnp,         1
+nCycles, 10
+runType, single
+usesequence, yes
+sequencefile, sequence.data

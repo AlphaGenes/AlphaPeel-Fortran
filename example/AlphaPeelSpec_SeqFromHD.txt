@@ -1,0 +1,10 @@
+nSnp         ,       3000
+InputFilePath, None
+pedigree, pedigree.txt
+OutputFilePath, outputs/sequence_results
+nCycles, 20
+runType, single
+mapFile, map.txt
+segFile, outputs/snp_array_results.seg
+UseSequence, yes
+SequenceFile, sequence_data.txt

@@ -1,6 +1,0 @@
-InputFilePath, smallsim-maskedGenotype.txt
-pedigree, smallsim-pedigree.txt
-OutputFilePath, singlelocus 
-nSnp         ,       300
-nCycles, 10
-runType, multi
