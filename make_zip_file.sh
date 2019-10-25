@@ -21,6 +21,9 @@ cp binaries/* AlphaPeel
 
 # Create a version file
 
+version=`git describe --tags --abbrev=0`
+commit=`git rev-parse --short HEAD`
+
 echo Version: $version > AlphaPeel/version.txt
 echo Commit: $commit >> AlphaPeel/version.txt
 
