@@ -13,7 +13,14 @@ cp example_single_locus_spec.txt AlphaPeel
 
 cp -r example AlphaPeel
 
-# Need to figure out how to do the zip files.
+# Copy in the documentation.
 cp docs/build/latex/AlphaPeel.pdf AlphaPeel
+
+# Copy in the binaries
+cp binaries/* AlphaPeel
+
+# Create a version file
+
+echo Version: 
 
 zip -r AlphaPeel.zip AlphaPeel
