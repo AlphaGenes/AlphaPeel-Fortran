@@ -21,6 +21,7 @@ cp binaries/* AlphaPeel
 
 # Create a version file
 
-echo Version: 
+echo Version: $version > AlphaPeel/version.txt
+echo Commit: $commit >> AlphaPeel/version.txt
 
 zip -r AlphaPeel.zip AlphaPeel
