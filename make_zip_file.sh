@@ -16,6 +16,11 @@ cp -r example AlphaPeel
 # Copy in the documentation.
 cp docs/build/latex/AlphaPeel.pdf AlphaPeel
 
+if [ $? != 0 ]; then                   # last command: echo
+    echo "The manual needs to be built." # last command: [
+    exit 1
+fi
+
 # Copy in the binaries
 cp binaries/* AlphaPeel
 
