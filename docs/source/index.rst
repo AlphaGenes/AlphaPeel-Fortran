@@ -172,7 +172,7 @@ Example: ::
 Dosage file
 -----------
 
-The dosage file gives the expected allele dosage for the alternative (or minor) allele for each individual. The first value in each line is the individual ID. The remaining values are the allele dosages at each loci. 
+The dosage file gives the expected allele dosage for the alternative (or minor) allele for each individual. The first value in each line is the individual id. The remaining values are the allele dosages at each loci. 
 
 Example: ::
 
