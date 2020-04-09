@@ -6,7 +6,7 @@ mkdir AlphaPeel
 #cmake . ; make
 
 # to build the manual:
-#( cd docs ; make latexpdf)
+( cd docs ; make latexpdf)
 
 cp example_multi_locus_spec.txt AlphaPeel
 cp example_single_locus_spec.txt AlphaPeel
