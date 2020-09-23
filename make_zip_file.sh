@@ -31,5 +31,6 @@ commit=`git rev-parse --short HEAD`
 
 echo Version: $version > AlphaPeel/version.txt
 echo Commit: $commit >> AlphaPeel/version.txt
+cp MIT_License.txt AlphaPeel
 
 zip -r AlphaPeel.zip AlphaPeel
