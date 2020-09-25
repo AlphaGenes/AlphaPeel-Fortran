@@ -1,18 +1,20 @@
-# README #
+===========
+AlphaImpute
+===========
 
-### What is this repository for? ###
+AlphaPeel is a software package for calling, phasing, and imputing genotype and sequence data in pedigree populations. This program implements single locus peeling, multi locus peeling, and hybrid peeling. A complete description of these methods is given in Hybrid peeling for fast and accurate calling, phasing, and imputation with sequence data of any coverage in pedigrees, Genetics Selection Evolution. 
 
-This is a multilocus peeler that (probably) implements Meuwissen and Goddard (2010). It extends geneprob by estimating segregation information at each locus and passing that segregation information to the next locus.
+Availability
+============
 
-### Known Issues
+The AlphaPeel.zip file contains executibles for Windows, Linux, and Mac, a manual, and an example dataset.
 
-1. Inconsistency between macOS and Linux and with using different number of threads.  
+Conditions of use
+=================
 
-   * Linux and macOS; Fortran compiler 19 update 5; PURE functions fixed: different numbers of threads give **different** results
-   * Fortran compiler 19 update 5; PURE functions fixed; `-O3`: macOS and Linux versions give **different** results
-   * Fortran compiler 19 update 5; PURE functions fixed; `-O0`: macOS and Linux versions give **identical** results for same number of threads
-   
-   With default compilation options (`-O3`, `-qopenmp` etc). Fixed PURE functions for 2019 compiler only. Values from `compare_files.r`:
-   * Linux; Fortran compiler 17 update 4; 1 thread vs 4 threads: max diff 0.9886; av diff -7.16544850498341e-06
-   * Linux; Fortran compiler 19 update 5; 1 thread vs 4 threads: max diff 0.2273; av diff -1.61046511627906e-06
-   * Mac; Fortran compiler 19 update 5; 1 thread vs 4 threads: max diff 0.3794; av diff 1.04086378737541e-06
+AlphaPeel is part of a suite of software that our group has developed. It is fully and freely available for all use under the MIT License.
+
+Suggested Citation
+------------------
+
+Whalen, A, Ros-Freixedes, R, Wilson, DL, Gorjanc, G, Hickey, JM. (2018). Hybrid peeling for fast and accurate calling, phasing, and imputation with sequence data of any coverage in pedigrees. Genetics Selection Evolution; doi: https://doi.org/10.1186/s12711-018-0438-2
